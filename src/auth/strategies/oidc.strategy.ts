@@ -102,7 +102,7 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
 
     const oidcConfig = this.configService.get<OidcConfig>("oidc");
 
-    const alshubProfile = await this.alsUserService.getALSUesrInfo(
+    const alshubProfile = await this.alsUserService.getALSUserInfo(
       userinfo.sub as string,
     );
     const userProfile = this.parseUserInfo(userinfo, alshubProfile);
@@ -112,7 +112,7 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
       username: userProfile.username,
       email: userProfile.email,
       accessGroupProperty: oidcConfig?.accessGroupProperty,
-      payload: userinfo,
+      payload: alshubProfile,
     };
     userProfile.accessGroups =
       await this.accessGroupService.getAccessGroups(userPayload);
@@ -187,14 +187,19 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
     );
 
     const alshubUser = {
-      username:
-        userinfo["preferred_username"] ??
+      id:
         alshubProfile.orcid ??
+        userinfo["sub"] ??
+        (userinfo["user_id"] as string) ??
+        "",
+      username:
+        alshubProfile.orcid ??
+        userinfo["preferred_username"] ??
         userinfo["name"] ??
         "",
       displayName: `${alshubProfile.given_name} ${alshubProfile.family_name}`,
       email: alshubProfile.current_email ?? userinfo["email"] ?? "",
-      accessGroups: alshubProfile.groups ?? userinfo["groups"] ?? [],
+      groups: alshubProfile.groups ?? userinfo["groups"] ?? [],
     } as unknown as IOidcUserInfoMapping;
 
     // To dynamically map user info fields based on environment variables,
@@ -305,7 +310,7 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
 export class ALSUserApiService {
   private readonly logger = new Logger(ALSUserApiService.name);
   constructor(private readonly httpService: HttpService) {}
-  async getALSUesrInfo(orcid: string): Promise<ALSHubProfile> {
+  async getALSUserInfo(orcid: string): Promise<ALSHubProfile> {
     const apiURL = `${process.env.USER_SVC_API_URL}/${orcid}/orcid?api_key=${process.env.USER_SVC_API_KEY}`;
     Logger.log(`talking to ${apiURL}`);
     const response = await firstValueFrom(
