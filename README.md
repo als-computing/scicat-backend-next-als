@@ -14,6 +14,6 @@ If you wish to contribute code back to the main SciCat project, merge your branc
 
 Avoid merging "ALS-Customizations" into master.
 
-### Differences between "ALS Customizations" and the official repo:
+### Differences between "ALS Customizations" and the official repo as of Apr 2025:
 
 * Customizations to the OIDC authentication strategy to fetch additional user info from the ALS User Service.
