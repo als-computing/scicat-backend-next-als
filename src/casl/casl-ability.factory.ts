@@ -1707,7 +1707,7 @@ export class CaslAbilityFactory {
         )
       ) {
         // -------------------------------------
-        // users belonging to any of the group listed in SAMPLE_GROUPS
+        // users belonging to any of the group listed in SAMPLE_PRIVILEGED_GROUPS
         //
 
         can(Action.SampleCreateAny, SampleClass);
