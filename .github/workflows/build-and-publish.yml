@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - ALS-Customizations
 
 env:
   REGISTRY: ghcr.io
