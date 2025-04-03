@@ -38,7 +38,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: latest=true # adds :latest tag to outputs.tags
-          tags: type=sha,format=long,prefix= # adds :<sha> tag to outputs.tags
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=long,prefix= # adds :<sha> tag to outputs.tags
 
       - name: Build and push
         uses: docker/build-push-action@v6
