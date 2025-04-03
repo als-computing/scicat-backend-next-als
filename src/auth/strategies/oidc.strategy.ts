@@ -3,9 +3,12 @@ import {
   Logger,
   InternalServerErrorException,
 } from "@nestjs/common";
+import { HttpService } from "@nestjs/axios";
+import { AxiosError } from "axios";
 import { ConfigService } from "@nestjs/config";
 import { PassportStrategy } from "@nestjs/passport";
 import { FilterQuery } from "mongoose";
+import { catchError, firstValueFrom } from "rxjs";
 import { CreateUserIdentityDto } from "src/users/dto/create-user-identity.dto";
 import { CreateUserDto } from "src/users/dto/create-user.dto";
 import { User, UserDocument, UserSchema } from "src/users/schemas/user.schema";
@@ -50,10 +53,27 @@ export class BuildOpenIdClient {
   }
 }
 
+/** The following code graft enhances the stock OidcStrategy
+ *  with the ALS-specific task of calling the ALS user service to fetch
+ *  additional user profile information, including email and accessGroup values.
+ */
+
+type ALSHubProfile = {
+  uid: string;
+  authenticators?: string[];
+  given_name: string;
+  family_name: string;
+  current_institution: string;
+  current_email: string;
+  orcid: string;
+  groups: string[];
+};
+
 @Injectable()
 export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
   client: Client;
   authStrategy = "oidc";
+  alsUserService: ALSUserApiService;
 
   constructor(
     private readonly authService: AuthService,
@@ -73,6 +93,7 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
       usePKCE: false,
     });
 
+    this.alsUserService = new ALSUserApiService(new HttpService());
     this.client = client;
   }
 
@@ -81,7 +102,10 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
 
     const oidcConfig = this.configService.get<OidcConfig>("oidc");
 
-    const userProfile = this.parseUserInfo(userinfo);
+    const alshubProfile = await this.alsUserService.getALSUesrInfo(
+      userinfo.sub as string,
+    );
+    const userProfile = this.parseUserInfo(userinfo, alshubProfile);
 
     const userPayload: UserPayload = {
       userId: userProfile.id,
@@ -155,12 +179,23 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
       : "no photo";
   }
 
-  parseUserInfo(userinfo: extendedIdTokenClaims) {
+  parseUserInfo(userinfo: extendedIdTokenClaims, alshubProfile: ALSHubProfile) {
     const profile = {} as OidcProfile;
 
     const customUserInfoFields = this.configService.get<IOidcUserInfoMapping>(
       "oidc.userInfoMapping",
     );
+
+    const alshubUser = {
+      username:
+        userinfo["preferred_username"] ??
+        alshubProfile.orcid ??
+        userinfo["name"] ??
+        "",
+      displayName: `${alshubProfile.given_name} ${alshubProfile.family_name}`,
+      email: alshubProfile.current_email ?? userinfo["email"] ?? "",
+      accessGroups: alshubProfile.groups ?? userinfo["groups"] ?? [],
+    } as unknown as IOidcUserInfoMapping;
 
     // To dynamically map user info fields based on environment variables,
     // set mappings like OIDC_USERINFO_MAPPING_FIELD_USERNAME=family_name.
@@ -207,7 +242,8 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
     profile.thumbnailPhoto = this.getUserPhoto(oidcUser.thumbnailPhoto);
     profile.oidcClaims = userinfo;
 
-    const oidcUserProfile = { ...oidcUser, ...profile };
+    // Contents of alshubUser will take precedence over oidcUser, but not profile.
+    const oidcUserProfile = { ...oidcUser, ...alshubUser, ...profile };
 
     return oidcUserProfile;
   }
@@ -262,5 +298,33 @@ export class OidcStrategy extends PassportStrategy(Strategy, "oidc") {
     const customFilter = { [operator]: filter };
     Logger.log(userQuery, "Executing custom userQuery filter", "OidcStrategy");
     return customFilter;
+  }
+}
+
+@Injectable()
+export class ALSUserApiService {
+  private readonly logger = new Logger(ALSUserApiService.name);
+  constructor(private readonly httpService: HttpService) {}
+  async getALSUesrInfo(orcid: string): Promise<ALSHubProfile> {
+    const apiURL = `${process.env.USER_SVC_API_URL}/${orcid}/orcid?api_key=${process.env.USER_SVC_API_KEY}`;
+    Logger.log(`talking to ${apiURL}`);
+    const response = await firstValueFrom(
+      this.httpService
+        .get(apiURL, {
+          headers: {
+            "Content-Type": "application/json",
+            // ...this.headers,
+          },
+        })
+        .pipe(
+          catchError((error: AxiosError) => {
+            this.logger.log(
+              `Could not get ALS information for orcid ${orcid} ${error.response?.data}`,
+            );
+            return [];
+          }),
+        ),
+    );
+    return response.data;
   }
 }
