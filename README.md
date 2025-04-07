@@ -10,10 +10,11 @@ For more project details, head to the [official repository](https://github.com/S
 
 ## Note: This repo has a default branch of "ALS-Customizations", not the usual default of "master".
 
-If you wish to contribute code back to the main SciCat project, merge your branch to master and make the pull request from there.
+If you wish to contribute code back to the main SciCat project, merge your work to master and make the pull request from there.
 
 Avoid merging "ALS-Customizations" into master.
 
 ### Differences between "ALS Customizations" and the official repo as of Apr 2025:
 
 * Customizations to the OIDC authentication strategy to fetch additional user info from the ALS User Service.
+* Fixes to the post-login browser redirect process (also submitted to the main project as a PR).
