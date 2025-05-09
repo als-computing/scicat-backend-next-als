@@ -1,6 +1,6 @@
 # SciCat Backend - ALS Customizations
-
-### Version: v4.x , NestJS implementation
+ 
+## Version: v4.x
 
 [![Test](https://github.com/als-computing/scicat-backend-next-als/actions/workflows/test.yml/badge.svg)](https://github.com/als-computing/scicat-backend-next-als/actions/workflows/test.yml)
 [![Deploy](https://github.com/als-computing/scicat-backend-next-als/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/als-computing/scicat-backend-next-als/actions/workflows/build-and-push.yml)
