@@ -10,11 +10,6 @@ export class FullFacetFilters {
   fields?: string;
 }
 
-export class SampleCountFilters {
-  @ApiPropertyOptional()
-  fields?: string;
-}
-
 export class FullQueryFilters {
   @ApiPropertyOptional()
   limits?: string;
@@ -53,4 +48,9 @@ export class IsValidResponse {
   valid: boolean;
   @ApiPropertyOptional()
   reason?: ValidationError[];
+}
+
+export class passwordUpdateResponse {
+  @ApiProperty({ type: String })
+  message: string;
 }

@@ -146,6 +146,9 @@ const configuration = () => {
     },
     swaggerPath: process.env.SWAGGER_PATH || "explorer",
     jobConfigurationFile: jobConfigurationFile,
+    jobDefaultStatusCode: process.env.JOB_DEFAULT_STATUS_CODE || "jobSubmitted",
+    jobDefaultStatusMessage:
+      process.env.JOB_DEFAULT_STATUS_MESSAGE || "Job submitted.",
     loggerConfigs: jsonConfigMap.loggers || [defaultLogger],
     accessGroups: {
       admin: adminGroups.split(",").map((v) => v.trim()) ?? [],
@@ -190,7 +193,10 @@ const configuration = () => {
       secret: process.env.EXPRESS_SESSION_SECRET,
       store: process.env.EXPRESS_SESSION_STORE,
     },
-    functionalAccounts: [],
+    functionalAccounts: {
+      accounts: [],
+      file: process.env.FUNCTIONAL_ACCOUNTS_FILE || "functionalAccounts.json",
+    },
     httpMaxRedirects: process.env.HTTP_MAX_REDIRECTS ?? 5,
     httpTimeOut: process.env.HTTP_TIMEOUT ?? 5000,
     jwt: {
