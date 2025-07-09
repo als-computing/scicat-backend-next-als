@@ -144,6 +144,7 @@ const configuration = () => {
     versions: {
       api: "3",
     },
+    apiPathPrefix: process.env.API_PATH_PREFIX || "api",
     swaggerPath: process.env.SWAGGER_PATH || "explorer",
     jobConfigurationFile: jobConfigurationFile,
     jobDefaultStatusCode: process.env.JOB_DEFAULT_STATUS_CODE || "jobSubmitted",
