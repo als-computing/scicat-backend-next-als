@@ -103,8 +103,10 @@ const configuration = () => {
         if (
           successUrl &&
           !(
-            new URL(successUrl).pathname === "/login" ||
-            new URL(successUrl).pathname == "/auth-callback"
+            // A full path comparison is overkill: The SciCat front end may be hosted on a sub-path,
+            // so the most we can do is check the tail end of it.
+            new URL(successUrl).pathname.endsWith("/login") ||
+            new URL(successUrl).pathname.endsWith("/auth-callback")
           )
         ) {
           throw new Error(
