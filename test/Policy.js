@@ -1,31 +1,17 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 "use strict";
-
-var utils = require("./LoginUtils");
+const utils = require("./LoginUtils");
 const { TestData } = require("./TestData");
 
-var accessTokenArchiveManager = null;
-var accessTokenAdminIngestor = null,
+let accessTokenArchiveManager = null,
+  accessTokenAdminIngestor = null,
   id = null;
 
-var testdataset = {
-  manager: ["adminIngestor"],
-  tapeRedundancy: "low",
-  //"tapeRetentionTime": 3,
-  autoArchiveDelay: 7,
-  archiveEmailNotification: false,
-  archiveEmailsToBeNotified: [],
-  retrieveEmailNotification: false,
-  retrieveEmailsToBeNotified: [],
-  ownerGroup: "p10021",
-  accessGroups: [],
-};
+const testdataset = { ...TestData.PolicyCorrect };
 
 describe("1300: Policy: Simple Policy tests", () => {
-  before(() => {
+  before(async () => {
     db.collection("Policy").deleteMany({});
-  });
-  beforeEach(async () => {
+
     accessTokenAdminIngestor = await utils.getToken(appUrl, {
       username: "adminIngestor",
       password: TestData.Accounts["adminIngestor"]["password"],
@@ -69,6 +55,19 @@ describe("1300: Policy: Simple Policy tests", () => {
       .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
       .expect(TestData.SuccessfulPatchStatusCode)
       .expect("Content-Type", /json/);
+  });
+
+  it("0035: fetch with no admin user returns 403", async () => {
+    const accessTokenUser1 = await utils.getToken(appUrl, {
+      username: "user1",
+      password: TestData.Accounts["user1"]["password"],
+    });
+    return request(appUrl)
+      .post("/api/v3/Policies")
+      .send(testdataset)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenUser1}` })
+      .expect(TestData.CreationForbiddenStatusCode)
   });
 
   it("0040: should delete this policy", async () => {

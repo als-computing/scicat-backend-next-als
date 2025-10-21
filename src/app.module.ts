@@ -1,5 +1,6 @@
-import { Module } from "@nestjs/common";
+import { Module, NestModule } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
+import { RequestContextModule } from "./common/modules/request-context.module";
 import { DatasetsModule } from "./datasets/datasets.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/users.module";
@@ -22,14 +23,7 @@ import { InstrumentsModule } from "./instruments/instruments.module";
 import { MailerModule } from "@nestjs-modules/mailer";
 import { join } from "path";
 import { HandlebarsAdapter } from "@nestjs-modules/mailer/dist/adapters/handlebars.adapter";
-import {
-  formatCamelCase,
-  unwrapJSON,
-  jsonify,
-  job_v3,
-  urlencode,
-  base64enc,
-} from "./common/handlebars-helpers";
+import { handlebarsHelpers } from "./common/handlebars-helpers";
 import { CommonModule } from "./common/common.module";
 import { RabbitMQModule } from "./common/rabbitmq/rabbitmq.module";
 import { EventEmitterModule } from "@nestjs/event-emitter";
@@ -42,6 +36,12 @@ import { HttpModule, HttpService } from "@nestjs/axios";
 import { MSGraphMailTransport } from "./common/graph-mail";
 import { TransportType } from "@nestjs-modules/mailer/dist/interfaces/mailer-options.interface";
 import { MetricsModule } from "./metrics/metrics.module";
+import {
+  GenericHistory,
+  GenericHistorySchema,
+} from "./common/schemas/generic-history.schema";
+import { HistoryModule } from "./history/history.module";
+import { MaskSensitiveDataInterceptorModule } from "./common/interceptors/mask-sensitive-data.interceptor";
 
 @Module({
   imports: [
@@ -124,15 +124,7 @@ import { MetricsModule } from "./metrics/metrics.module";
           },
           template: {
             dir: join(__dirname, "./common/email-templates"),
-            adapter: new HandlebarsAdapter({
-              unwrapJSON: unwrapJSON,
-              keyToWord: formatCamelCase,
-              eq: (a, b) => a === b,
-              jsonify: jsonify,
-              job_v3: job_v3,
-              urlencode: urlencode,
-              base64enc: base64enc,
-            }),
+            adapter: new HandlebarsAdapter(handlebarsHelpers),
             options: {
               strict: true,
             },
@@ -147,6 +139,12 @@ import { MetricsModule } from "./metrics/metrics.module";
       }),
       inject: [ConfigService],
     }),
+    MongooseModule.forFeature([
+      {
+        name: GenericHistory.name,
+        schema: GenericHistorySchema,
+      },
+    ]),
     OrigDatablocksModule,
     PoliciesModule,
     ProposalsModule,
@@ -155,6 +153,12 @@ import { MetricsModule } from "./metrics/metrics.module";
     UsersModule,
     AdminModule,
     HealthModule,
+    RequestContextModule,
+    HistoryModule,
+    ConditionalModule.registerWhen(
+      MaskSensitiveDataInterceptorModule,
+      (env: NodeJS.ProcessEnv) => env.MASK_PERSONAL_INFO === "yes",
+    ),
   ],
   controllers: [],
   providers: [
@@ -165,4 +169,12 @@ import { MetricsModule } from "./metrics/metrics.module";
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure() {
+    // If you need this middleware for when METRICS_ENABLED is not "yes", you could
+    // add conditional logic here, but it's cleaner to handle that in the metrics module itself
+    // Please see `MetricsModule` for the middleware registration (metrics.module.ts)
+    // where it is conditionally applied based on the environment variable.
+    // Example: consumer.apply(AccessTrackingMiddleware).forRoutes("*");
+  }
+}

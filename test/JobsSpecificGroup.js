@@ -1,16 +1,20 @@
-var utils = require("./LoginUtils");
+"use strict";
+const utils = require("./LoginUtils");
 const { TestData } = require("./TestData");
 
 let accessTokenAdminIngestor = null,
+  accessTokenArchiveManager = null,
   accessTokenUser1 = null,
   accessTokenUser3 = null,
   accessTokenUser4 = null,
   accessTokenUser51 = null,
   accessTokenUser52 = null,
-  accessTokenAdmin = null;
+  accessTokenAdmin = null,
 
-let datasetPid1 = null,
+  datasetPid1 = null,
   datasetPid2 = null,
+  datasetPid3 = null,
+
   jobId1 = null,
   encodedJobOwnedByAdmin = null,
   jobId2 = null,
@@ -54,12 +58,10 @@ const jobGroup5 = {
 };
 
 describe("1180: Jobs: Test New Job Model Authorization for group_access type: configuration set to a specific group - @group5", () => {
-  before(() => {
+  before(async () => {
     db.collection("Dataset").deleteMany({});
     db.collection("Job").deleteMany({});
-  });
 
-  beforeEach(async () => {
     accessTokenAdminIngestor = await utils.getToken(appUrl, {
       username: "adminIngestor",
       password: TestData.Accounts["adminIngestor"]["password"],
@@ -876,11 +878,15 @@ describe("1180: Jobs: Test New Job Model Authorization for group_access type: co
   });
 
   it("0400: Access jobs as a user from ADMIN_GROUPS that were created by User5.2", async () => {
-    const query = { where: { createdBy: "user5.2" } };
+    const filter = {
+      where: {
+        createdBy: "user5.2",
+      },
+    };
     return request(appUrl)
       .get(`/api/v4/Jobs/`)
       .send({})
-      .query("filter=" + encodeURIComponent(JSON.stringify(query)))
+      .query({ filter: JSON.stringify(filter) })
       .set("Accept", "application/json")
       .set({ Authorization: `Bearer ${accessTokenAdmin}` })
       .expect(TestData.SuccessfulGetStatusCode)
@@ -915,11 +921,15 @@ describe("1180: Jobs: Test New Job Model Authorization for group_access type: co
   });
 
   it("0430: Fullquery jobs as a user from ADMIN_GROUPS that were created by User5.2", async () => {
-    const query = { createdBy: "user5.2" };
+    const filter = {
+      where: {
+        createdBy: "user5.2",
+      },
+    };
     return request(appUrl)
       .get(`/api/v4/Jobs/fullquery`)
       .send({})
-      .query("fields=" + encodeURIComponent(JSON.stringify(query)))
+      .query({ filter: JSON.stringify(filter) })
       .set("Accept", "application/json")
       .set({ Authorization: `Bearer ${accessTokenAdmin}` })
       .expect(TestData.SuccessfulGetStatusCode)
@@ -943,11 +953,13 @@ describe("1180: Jobs: Test New Job Model Authorization for group_access type: co
   });
 
   it("0450: Fullfacet jobs as a user from ADMIN_GROUPS that were created by User5.1", async () => {
-    const queryFields = { createdBy: "user5.1" };
+    const fields = {
+      createdBy: "user5.1",
+    };
     return request(appUrl)
       .get(`/api/v4/Jobs/fullfacet`)
       .send({})
-      .query("fields=" + encodeURIComponent(JSON.stringify(queryFields)))
+      .query({ fields: JSON.stringify(fields) })
       .set("Accept", "application/json")
       .set({ Authorization: `Bearer ${accessTokenAdmin}` })
       .expect(TestData.SuccessfulGetStatusCode)
@@ -960,11 +972,13 @@ describe("1180: Jobs: Test New Job Model Authorization for group_access type: co
   });
 
   it("0460: Fullfacet jobs as a user from ADMIN_GROUPS that were created by User5.2", async () => {
-    const query = { createdBy: "user5.2" };
+    const fields = {
+      createdBy: "user5.2",
+    };
     return request(appUrl)
       .get(`/api/v4/Jobs/fullfacet`)
       .send({})
-      .query("fields=" + encodeURIComponent(JSON.stringify(query)))
+      .query({ fields: JSON.stringify(fields) })
       .set("Accept", "application/json")
       .set({ Authorization: `Bearer ${accessTokenAdmin}` })
       .expect(TestData.SuccessfulGetStatusCode)

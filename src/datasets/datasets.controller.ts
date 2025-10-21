@@ -1,27 +1,27 @@
 import {
+  BadRequestException,
   Body,
+  ConflictException,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   Headers,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  InternalServerErrorException,
+  NotFoundException,
   Param,
-  Post,
   Patch,
+  Post,
   Put,
-  Delete,
   Query,
+  Req,
   UseGuards,
   UseInterceptors,
-  HttpCode,
-  HttpStatus,
-  HttpException,
-  NotFoundException,
-  Req,
-  ForbiddenException,
-  InternalServerErrorException,
-  ConflictException,
-  BadRequestException,
 } from "@nestjs/common";
-import { MongoError } from "mongodb";
+import { ConfigService } from "@nestjs/config";
 import {
   ApiBearerAuth,
   ApiBody,
@@ -33,54 +33,32 @@ import {
   ApiTags,
   getSchemaPath,
 } from "@nestjs/swagger";
-import { Request } from "express";
-import { DatasetsService } from "./datasets.service";
-import { PartialUpdateDatasetObsoleteDto } from "./dto/update-dataset-obsolete.dto";
-import { DatasetClass, DatasetDocument } from "./schemas/dataset.schema";
-import { CreateRawDatasetObsoleteDto } from "./dto/create-raw-dataset-obsolete.dto";
-import { CreateDerivedDatasetObsoleteDto } from "./dto/create-derived-dataset-obsolete.dto";
-import { PoliciesGuard } from "src/casl/guards/policies.guard";
-import { CheckPolicies } from "src/casl/decorators/check-policies.decorator";
-import { AppAbility, CaslAbilityFactory } from "src/casl/casl-ability.factory";
-import { Action } from "src/casl/action.enum";
-import { IDatasetFields } from "./interfaces/dataset-filters.interface";
-import {
-  MainDatasetsPublicInterceptor,
-  SubDatasetsPublicInterceptor,
-} from "./interceptors/datasets-public.interceptor";
-import { Attachment } from "src/attachments/schemas/attachment.schema";
-import { CreateAttachmentV3Dto } from "src/attachments/dto-obsolete/create-attachment.v3.dto";
-import { AttachmentsService } from "src/attachments/attachments.service";
-import { UpdateAttachmentV3Dto } from "src/attachments/dto-obsolete/update-attachment.v3.dto";
-import { OrigDatablock } from "src/origdatablocks/schemas/origdatablock.schema";
-import { CreateOrigDatablockDto } from "src/origdatablocks/dto/create-origdatablock.dto";
-import { OrigDatablocksService } from "src/origdatablocks/origdatablocks.service";
-import { UpdateOrigDatablockDto } from "src/origdatablocks/dto/update-origdatablock.dto";
-import { DatablocksService } from "src/datablocks/datablocks.service";
-import { Datablock } from "src/datablocks/schemas/datablock.schema";
-import { CreateDatablockDto } from "src/datablocks/dto/create-datablock.dto";
-import { PartialUpdateDatablockDto } from "src/datablocks/dto/update-datablock.dto";
-import { UpdateQuery } from "mongoose";
-import { FilterPipe } from "src/common/pipes/filter.pipe";
-import { UTCTimeInterceptor } from "src/common/interceptors/utc-time.interceptor";
-import { DataFile } from "src/common/schemas/datafile.schema";
-import { MultiUTCTimeInterceptor } from "src/common/interceptors/multi-utc-time.interceptor";
-import { FullQueryInterceptor } from "./interceptors/fullquery.interceptor";
-import { FormatPhysicalQuantitiesInterceptor } from "src/common/interceptors/format-physical-quantities.interceptor";
-import { IFacets, IFilters } from "src/common/interfaces/common.interface";
 import { ClassConstructor, plainToInstance } from "class-transformer";
 import { validate, ValidationError, ValidatorOptions } from "class-validator";
-import { HistoryInterceptor } from "src/common/interceptors/history.interceptor";
-import { CreateDatasetOrigDatablockDto } from "src/origdatablocks/dto/create-dataset-origdatablock";
+import { Request } from "express";
+import { MongoError } from "mongodb";
+import { UpdateQuery } from "mongoose";
+import { AttachmentsService } from "src/attachments/attachments.service";
+import { CreateAttachmentV3Dto } from "src/attachments/dto-obsolete/create-attachment.v3.dto";
+import { OutputAttachmentV3Dto } from "src/attachments/dto-obsolete/output-attachment.v3.dto";
+import { UpdateAttachmentV3Dto } from "src/attachments/dto-obsolete/update-attachment.v3.dto";
+import { Attachment } from "src/attachments/schemas/attachment.schema";
+import { JWTUser } from "src/auth/interfaces/jwt-user.interface";
+import { Action } from "src/casl/action.enum";
+import { AppAbility, CaslAbilityFactory } from "src/casl/casl-ability.factory";
+import { CheckPolicies } from "src/casl/decorators/check-policies.decorator";
+import { PoliciesGuard } from "src/casl/guards/policies.guard";
+import { FormatPhysicalQuantitiesInterceptor } from "src/common/interceptors/format-physical-quantities.interceptor";
+import { MultiUTCTimeInterceptor } from "src/common/interceptors/multi-utc-time.interceptor";
+import { UTCTimeInterceptor } from "src/common/interceptors/utc-time.interceptor";
+import { IFacets, IFilters } from "src/common/interfaces/common.interface";
+import { FilterPipe } from "src/common/pipes/filter.pipe";
+import { DataFile } from "src/common/schemas/datafile.schema";
 import {
-  PartialUpdateRawDatasetObsoleteDto,
-  UpdateRawDatasetObsoleteDto,
-} from "./dto/update-raw-dataset-obsolete.dto";
-import {
-  PartialUpdateDerivedDatasetObsoleteDto,
-  UpdateDerivedDatasetObsoleteDto,
-} from "./dto/update-derived-dataset-obsolete.dto";
-import { CreateDatasetDatablockDto } from "src/datablocks/dto/create-dataset-datablock";
+  CountApiResponse,
+  FullFacetResponse,
+  IsValidResponse,
+} from "src/common/types";
 import {
   datasetsFullQueryDescriptionFields,
   datasetsFullQueryExampleFields,
@@ -90,31 +68,53 @@ import {
   fullQueryExampleLimits,
   replaceLikeOperator,
 } from "src/common/utils";
-import { HistoryClass } from "./schemas/history.schema";
-import { TechniqueClass } from "./schemas/technique.schema";
-import { RelationshipClass } from "./schemas/relationship.schema";
-import { JWTUser } from "src/auth/interfaces/jwt-user.interface";
+import { AccessGroupsType } from "src/config/configuration";
+import { DatablocksService } from "src/datablocks/datablocks.service";
+import { CreateDatablockDto } from "src/datablocks/dto/create-datablock.dto";
+import { CreateDatasetDatablockDto } from "src/datablocks/dto/create-dataset-datablock";
+import { PartialUpdateDatablockDto } from "src/datablocks/dto/update-datablock.dto";
+import { Datablock } from "src/datablocks/schemas/datablock.schema";
 import { LogbooksService } from "src/logbooks/logbooks.service";
-import { OutputDatasetObsoleteDto } from "./dto/output-dataset-obsolete.dto";
+import { Logbook } from "src/logbooks/schemas/logbook.schema";
+import { CreateDatasetOrigDatablockDto } from "src/origdatablocks/dto/create-dataset-origdatablock";
+import { CreateOrigDatablockDto } from "src/origdatablocks/dto/create-origdatablock.dto";
+import { UpdateOrigDatablockDto } from "src/origdatablocks/dto/update-origdatablock.dto";
+import { OrigDatablocksService } from "src/origdatablocks/origdatablocks.service";
+import { OrigDatablock } from "src/origdatablocks/schemas/origdatablock.schema";
+import { DatasetsService } from "./datasets.service";
 import { CreateDatasetDto } from "./dto/create-dataset.dto";
+import { CreateDerivedDatasetObsoleteDto } from "./dto/create-derived-dataset-obsolete.dto";
+import { CreateRawDatasetObsoleteDto } from "./dto/create-raw-dataset-obsolete.dto";
+import { OutputDatasetObsoleteDto } from "./dto/output-dataset-obsolete.dto";
+import { PartialUpdateDatasetObsoleteDto } from "./dto/update-dataset-obsolete.dto";
 import {
   PartialUpdateDatasetDto,
+  PartialUpdateDatasetLifecycleDto,
   UpdateDatasetDto,
   UpdateDatasetLifecycleDto,
-  PartialUpdateDatasetLifecycleDto,
 } from "./dto/update-dataset.dto";
-import { Logbook } from "src/logbooks/schemas/logbook.schema";
-import { ConfigService } from "@nestjs/config";
-import { AccessGroupsType } from "src/config/configuration";
-import { DatasetType } from "./types/dataset-type.enum";
 import {
-  CountApiResponse,
-  FullFacetResponse,
-  IsValidResponse,
-} from "src/common/types";
-import { OutputAttachmentV3Dto } from "src/attachments/dto-obsolete/output-attachment.v3.dto";
+  PartialUpdateDerivedDatasetObsoleteDto,
+  UpdateDerivedDatasetObsoleteDto,
+} from "./dto/update-derived-dataset-obsolete.dto";
+import {
+  PartialUpdateRawDatasetObsoleteDto,
+  UpdateRawDatasetObsoleteDto,
+} from "./dto/update-raw-dataset-obsolete.dto";
+import {
+  MainDatasetsPublicInterceptor,
+  SubDatasetsPublicInterceptor,
+} from "./interceptors/datasets-public.interceptor";
+import { FullQueryInterceptor } from "./interceptors/fullquery.interceptor";
+import { IDatasetFields } from "./interfaces/dataset-filters.interface";
+import { DatasetClass, DatasetDocument } from "./schemas/dataset.schema";
+import { HistoryClass } from "./schemas/history.schema";
 import { LifecycleClass } from "./schemas/lifecycle.schema";
-import { isEqual } from "lodash";
+import { RelationshipClass } from "./schemas/relationship.schema";
+import { TechniqueClass } from "./schemas/technique.schema";
+import { DatasetType } from "./types/dataset-type.enum";
+import { HistoryService } from "src/history/history.service";
+import { convertGenericHistoriesToObsoleteHistories } from "src/datasets/utils/history.util";
 
 @ApiBearerAuth()
 @ApiExtraModels(
@@ -136,6 +136,7 @@ export class DatasetsController {
     private caslAbilityFactory: CaslAbilityFactory,
     private logbooksService: LogbooksService,
     private configService: ConfigService,
+    private historyService: HistoryService,
   ) {
     this.accessGroups =
       this.configService.get<AccessGroupsType>("accessGroups");
@@ -156,6 +157,7 @@ export class DatasetsController {
     headers: Record<string, string>,
     queryFilter: { filter?: string },
   ) {
+    let filters: IFilters<DatasetDocument, IDatasetFields> = {};
     // NOTE: If both headers and query filters are present return error because we don't want to support this scenario.
     if (queryFilter?.filter && (headers?.filter || headers?.where)) {
       throw new HttpException(
@@ -166,24 +168,23 @@ export class DatasetsController {
         },
         HttpStatus.BAD_REQUEST,
       );
-    } else if (queryFilter?.filter) {
-      const jsonQueryFilters: IFilters<DatasetDocument, IDatasetFields> =
-        JSON.parse(queryFilter.filter);
-
-      return jsonQueryFilters;
-    } else if (headers?.filter) {
-      const jsonHeadersFilters: IFilters<DatasetDocument, IDatasetFields> =
-        JSON.parse(headers.filter);
-
-      return jsonHeadersFilters;
-    } else if (headers?.where) {
-      const jsonHeadersWhereFilters: IFilters<DatasetDocument, IDatasetFields> =
-        JSON.parse(headers.where);
-
-      return jsonHeadersWhereFilters;
+    } else {
+      try {
+        if (queryFilter?.filter) {
+          filters = JSON.parse(queryFilter.filter);
+        } else if (headers?.filter) {
+          filters = JSON.parse(headers.filter);
+        } else if (headers?.where) {
+          filters = JSON.parse(headers.where);
+        }
+      } catch (err) {
+        const error = err as Error;
+        throw new BadRequestException(
+          `Invalid JSON in filter: ${error.message}`,
+        );
+      }
     }
-
-    return {};
+    return filters;
   }
 
   updateMergedFiltersForList(
@@ -237,7 +238,10 @@ export class DatasetsController {
           ownerGroup: { $in: user.currentGroups },
         };
       } else if (canViewPublic) {
-        mergedFilters.where = { isPublished: true };
+        mergedFilters.where = {
+          ...mergedFilters.where,
+          isPublished: true,
+        };
       }
     }
 
@@ -577,9 +581,9 @@ export class DatasetsController {
     return outputDataset;
   }
 
-  convertCurrentToObsoleteSchema(
-    inputDataset: DatasetClass | null,
-  ): OutputDatasetObsoleteDto {
+  async convertCurrentToObsoleteSchema(
+    inputDataset: DatasetDocument | null,
+  ): Promise<OutputDatasetObsoleteDto> {
     const propertiesModifier: Record<string, unknown> = {};
     if (inputDataset) {
       if ("proposalIds" in inputDataset && inputDataset.proposalIds?.length) {
@@ -612,6 +616,14 @@ export class DatasetsController {
             inputDataset.principalInvestigators[0];
         }
       }
+
+      propertiesModifier.history = convertGenericHistoriesToObsoleteHistories(
+        await this.historyService.find({
+          documentId: inputDataset._id,
+          subsystem: "Dataset",
+        }),
+        inputDataset,
+      );
     }
 
     const outputDataset: OutputDatasetObsoleteDto = {
@@ -701,7 +713,7 @@ export class DatasetsController {
       ) as CreateDatasetDto;
       const createdDataset = await this.datasetsService.create(datasetDto);
       const outputObsoleteDatasetDto =
-        this.convertCurrentToObsoleteSchema(createdDataset);
+        await this.convertCurrentToObsoleteSchema(createdDataset);
 
       return outputObsoleteDatasetDto;
     } catch (error) {
@@ -910,8 +922,8 @@ export class DatasetsController {
     let outputDatasets: OutputDatasetObsoleteDto[] = [];
     if (datasets && datasets.length > 0) {
       const includeFilters = mergedFilters.include ?? [];
-      outputDatasets = datasets.map((dataset) =>
-        this.convertCurrentToObsoleteSchema(dataset),
+      outputDatasets = await Promise.all(
+        datasets.map((dataset) => this.convertCurrentToObsoleteSchema(dataset)),
       );
       await Promise.all(
         outputDatasets.map(async (dataset) => {
@@ -930,13 +942,17 @@ export class DatasetsController {
                   case "origdatablocks": {
                     dataset.origdatablocks =
                       await this.origDatablocksService.findAll({
-                        datasetId: dataset.pid,
+                        where: {
+                          datasetId: dataset.pid,
+                        },
                       });
                     break;
                   }
                   case "datablocks": {
                     dataset.datablocks = await this.datablocksService.findAll({
-                      datasetId: dataset.pid,
+                      where: {
+                        datasetId: dataset.pid,
+                      },
                     });
                     break;
                   }
@@ -1033,8 +1049,8 @@ export class DatasetsController {
     let outputDatasets: OutputDatasetObsoleteDto[] = [];
 
     if (datasets && datasets.length > 0) {
-      outputDatasets = datasets.map((dataset) =>
-        this.convertCurrentToObsoleteSchema(dataset),
+      outputDatasets = await Promise.all(
+        datasets.map((dataset) => this.convertCurrentToObsoleteSchema(dataset)),
       );
     }
 
@@ -1246,7 +1262,9 @@ export class DatasetsController {
             case "attachments": {
               outputDataset.attachments = await this.attachmentsService.findAll(
                 {
-                  datasetId: outputDataset.pid,
+                  where: {
+                    datasetId: outputDataset.pid,
+                  },
                 },
               );
               break;
@@ -1340,7 +1358,7 @@ export class DatasetsController {
     description: "Dataset not found",
   })
   async findById(@Req() request: Request, @Param("pid") id: string) {
-    const dataset = this.convertCurrentToObsoleteSchema(
+    const dataset = await this.convertCurrentToObsoleteSchema(
       await this.checkPermissionsForDatasetObsolete(request, id),
     );
 
@@ -1357,7 +1375,6 @@ export class DatasetsController {
     new UTCTimeInterceptor<DatasetClass>(["creationTime"]),
     new UTCTimeInterceptor<DatasetClass>(["endTime"]),
     new FormatPhysicalQuantitiesInterceptor<DatasetClass>("scientificMetadata"),
-    HistoryInterceptor,
   )
   @Patch("/:pid")
   @ApiOperation({
@@ -1452,7 +1469,7 @@ export class DatasetsController {
       validatedUpdateDatasetObsoleteDto,
     ) as UpdateDatasetDto;
 
-    const res = this.convertCurrentToObsoleteSchema(
+    const res = await this.convertCurrentToObsoleteSchema(
       await this.datasetsService.findByIdAndUpdate(pid, updateDatasetDto),
     );
     return res;
@@ -1467,7 +1484,6 @@ export class DatasetsController {
     new UTCTimeInterceptor<DatasetClass>(["creationTime"]),
     new UTCTimeInterceptor<DatasetClass>(["endTime"]),
     new FormatPhysicalQuantitiesInterceptor<DatasetClass>("scientificMetadata"),
-    HistoryInterceptor,
   )
   @Put("/:pid")
   @ApiOperation({
@@ -1563,7 +1579,7 @@ export class DatasetsController {
       updateDatasetDto as UpdateDatasetDto,
     );
 
-    return this.convertCurrentToObsoleteSchema(outputDatasetDto);
+    return await this.convertCurrentToObsoleteSchema(outputDatasetDto);
   }
 
   // GET /datasets/:id/datasetlifecycle
@@ -1596,7 +1612,7 @@ export class DatasetsController {
     description: "Dataset not found",
   })
   async findLifecycleById(@Req() request: Request, @Param("pid") id: string) {
-    const dataset = this.convertCurrentToObsoleteSchema(
+    const dataset = await this.convertCurrentToObsoleteSchema(
       await this.checkPermissionsForDatasetObsolete(request, id),
     );
     return dataset?.datasetlifecycle;
@@ -1610,7 +1626,6 @@ export class DatasetsController {
   @UseInterceptors(
     new UTCTimeInterceptor<DatasetClass>(["creationTime"]),
     new UTCTimeInterceptor<DatasetClass>(["endTime"]),
-    HistoryInterceptor,
   )
   @Patch("/:pid/datasetlifecycle")
   @ApiOperation({
@@ -1660,22 +1675,6 @@ export class DatasetsController {
       ...currentLifecycle,
       ...updateDatasetLifecycleDto,
     };
-    const sameValue = Object.entries(updatedLifecycle).every(([key, value]) => {
-      const foundValue =
-        currentLifecycle?.[key as keyof PartialUpdateDatasetLifecycleDto];
-      if (foundValue instanceof Date) {
-        return value === foundValue.toISOString();
-      } else if (typeof foundValue === "object" && typeof value === "object") {
-        return isEqual(value, foundValue);
-      }
-      return value === foundValue;
-    });
-
-    if (sameValue) {
-      throw new ConflictException(
-        `dataset: ${foundDataset.pid} already has the same lifecycle`,
-      );
-    }
     foundDataset.datasetlifecycle = updatedLifecycle;
 
     const datasetInstance =
@@ -1693,7 +1692,7 @@ export class DatasetsController {
       throw new ForbiddenException("Unauthorized to update this dataset");
     }
 
-    const res = this.convertCurrentToObsoleteSchema(
+    const res = await this.convertCurrentToObsoleteSchema(
       await this.datasetsService.findByIdAndUpdate(pid, foundDataset),
     );
     return res.datasetlifecycle;
@@ -2567,6 +2566,58 @@ export class DatasetsController {
       return res;
     }
     return null;
+  }
+
+  // DELETE /datasets/:id/datablocks
+  @UseGuards(PoliciesGuard)
+  @CheckPolicies("datasets", (ability: AppAbility) =>
+    ability.can(Action.DatasetDatablockDelete, DatasetClass),
+  )
+  @Delete("/:pid/datablocks")
+  @ApiOperation({
+    summary: "It deletes all datablock from the dataset.",
+    description:
+      "It deletes all datablocks from the dataset.<br>This endpoint is obsolete and will be dropped in future versions.<br>Deleting datablocks will be done only from the datablocks endpoint.",
+  })
+  @ApiParam({
+    name: "pid",
+    description:
+      "Persistent identifier of the dataset for which we would like to delete the datablock specified",
+    type: String,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    schema: {
+      type: "object",
+      properties: {
+        deletedCount: { type: "integer" },
+      },
+    },
+    description:
+      "Return the number of deleted datablocks in the following format: { deleteCount: integer }",
+  })
+  async deleteAllDatablocksFromDatasetId(
+    @Req() request: Request,
+    @Param("pid") pid: string,
+  ): Promise<unknown> {
+    const dataset = await this.checkPermissionsForDatasetExtended(
+      request,
+      pid,
+      Action.DatasetDatablockDelete,
+    );
+    if (!dataset) return null;
+    // remove datablock
+    const res = await this.datablocksService.removeMany({
+      datasetId: pid,
+    });
+    // update dataset size and files number
+    await this.datasetsService.findByIdAndUpdate(dataset.pid, {
+      packedSize: 0,
+      numberOfFilesArchived: 0,
+      size: 0,
+      numberOfFiles: 0,
+    });
+    return res;
   }
 
   @UseGuards(PoliciesGuard)

@@ -202,6 +202,55 @@ export const mapScientificQuery = (
         );
         break;
       }
+      case ScientificRelation.GREATER_THAN_OR_EQUAL: {
+        if (unit && unit.length > 0) {
+          const { valueSI, unitSI } = convertToSI(Number(rhs), unit);
+          scientificFilterQuery[matchKeyMeasurement] = { $gte: valueSI };
+          scientificFilterQuery[matchUnit] = { $eq: unitSI };
+        } else {
+          scientificFilterQueryOr.push(
+            buildCondition(matchKeyGeneric, rhs, "$gte"),
+          );
+        }
+        break;
+      }
+      case ScientificRelation.LESS_THAN_OR_EQUAL: {
+        if (unit && unit.length > 0) {
+          const { valueSI, unitSI } = convertToSI(Number(rhs), unit);
+          scientificFilterQuery[matchKeyMeasurement] = { $lte: valueSI };
+          scientificFilterQuery[matchUnit] = { $eq: unitSI };
+        } else {
+          scientificFilterQueryOr.push(
+            buildCondition(matchKeyGeneric, rhs, "$lte"),
+          );
+        }
+        break;
+      }
+      case ScientificRelation.RANGE: {
+        if (Array.isArray(rhs) && rhs.length === 2) {
+          const [min, max] = rhs;
+          if (unit && unit.length > 0) {
+            const { valueSI: minSI, unitSI } = convertToSI(Number(min), unit);
+            const { valueSI: maxSI } = convertToSI(Number(max), unit);
+            scientificFilterQuery[matchKeyMeasurement] = {
+              $gt: minSI,
+              $lt: maxSI,
+            };
+            scientificFilterQuery[matchUnit] = { $eq: unitSI };
+          } else {
+            scientificFilterQuery[`${matchKeyGeneric}.value`] = {
+              $gt: min,
+              $lt: max,
+            };
+          }
+        } else {
+          Logger.warn(
+            "RANGE relation expects rhs to be [min, max] array, got: " +
+              JSON.stringify(rhs),
+          );
+        }
+        break;
+      }
     }
   });
   if (scientificFilterQueryOr.length == 1) {
@@ -367,6 +416,10 @@ export const parsePipelineSort = (sort: Record<string, "asc" | "desc">) => {
 
 export const parsePipelineProjection = (fieldsProjection: string[]) => {
   const pipelineProjection: Record<string, boolean> = {};
+
+  if (!Array.isArray(fieldsProjection)) {
+    throw new HttpException("fields must be an array", HttpStatus.BAD_REQUEST);
+  }
   fieldsProjection.forEach((field) => {
     pipelineProjection[field] = true;
   });
@@ -524,6 +577,17 @@ export const searchExpression = <T>(
   } else if (Array.isArray(value)) {
     return {
       $in: value,
+    };
+  } else if (
+    valueType === "Number" &&
+    value &&
+    typeof value === "object" &&
+    "min" in value &&
+    "max" in value
+  ) {
+    return {
+      $gte: value.min,
+      $lte: value.max,
     };
   } else {
     return value;
@@ -922,7 +986,7 @@ export const filterDescription =
 </pre>';
 
 export const fullQueryExampleLimits =
-  '{"limit": 1, "skip": 1, "order": "creationTime:desc"}';
+  '{"limit": 1, "skip": 0, "order": "creationTime:desc"}';
 
 export const fullQueryDescriptionLimits =
   '<pre>\n \
@@ -1133,6 +1197,28 @@ export const isJsonString = (str: string) => {
  */
 export function oneOrMore<T>(x: T[] | T): T[] {
   return Array.isArray(x) ? x : [x];
+}
+
+/**
+ * Make a single property K of T optional
+ */
+export type MakeOptional<T, K extends keyof T> = Omit<T, K> &
+  Partial<Pick<T, K>>;
+
+/**
+ * Type guard for Record<string, string>
+ * @param obj
+ * @returns
+ */
+export function isStringRecord(obj: unknown): obj is Record<string, string> {
+  if (typeof obj !== "object" || obj === null) {
+    return false;
+  }
+  const rec = obj as Record<string, string>;
+
+  return Object.keys(rec).every(
+    (key) => typeof key === "string" && typeof rec[key] === "string",
+  );
 }
 
 /**

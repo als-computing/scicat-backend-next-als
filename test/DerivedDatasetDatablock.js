@@ -1,20 +1,20 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
-var utils = require("./LoginUtils");
+"use strict";
+const utils = require("./LoginUtils");
 const { TestData } = require("./TestData");
 
+let accessTokenAdminIngestor = null,
+  accessTokenArchiveManager = null,
+  accessTokenUser1 = null,
+
+  datasetPid = null,
+  datablockId1 = null,
+  datablockId2 = null;
+
 describe("0750: DerivedDatasetDatablock: Test Datablocks and their relation to derived Datasets", () => {
-  let accessTokenAdminIngestor = null;
-  let accessTokenArchiveManager = null;
-
-  let datasetPid = null;
-
-  let datablockId1 = null;
-  let datablockId2 = null;
-
-  before(() => {
+  before(async () => {
     db.collection("Dataset").deleteMany({});
-  });
-  beforeEach(async () => {
+    db.collection("Datablock").deleteMany({});
+
     accessTokenAdminIngestor = await utils.getToken(appUrl, {
       username: "adminIngestor",
       password: TestData.Accounts["adminIngestor"]["password"],
@@ -24,6 +24,15 @@ describe("0750: DerivedDatasetDatablock: Test Datablocks and their relation to d
       username: "archiveManager",
       password: TestData.Accounts["archiveManager"]["password"],
     });
+
+    accessTokenUser1 = await utils.getToken(appUrl, {
+      username: "user1",
+      password: TestData.Accounts["user1"]["password"],
+    });
+  });
+
+  after(() => {
+    db.collection("Datablock").deleteMany({});
   });
 
   it("0100:adds a new derived dataset", async () => {
@@ -163,6 +172,58 @@ describe("0750: DerivedDatasetDatablock: Test Datablocks and their relation to d
       });
   });
 
+    it("00175: should fetch one dataset datablocks with pid", async () => {
+    let datasetPid2 = null;
+
+    await request(appUrl)
+      .post("/api/v3/Datasets")
+      .send(TestData.DerivedCorrect)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
+      .expect(TestData.EntryCreatedStatusCode)
+      .expect("Content-Type", /json/)
+      .then((res) => {
+        datasetPid2 = res.body["pid"];
+      });
+
+    await request(appUrl)
+      .post("/api/v3/datablocks")
+      .send({
+        ...TestData.DataBlockCorrect,
+        datasetId: datasetPid2,
+        archiveId: "dataset2-archive1",
+        ownerGroup: TestData.Accounts.user1.role,
+      })
+      .auth(accessTokenAdminIngestor, { type: "bearer" })
+      .expect(TestData.EntryCreatedStatusCode)
+
+    const filter = {
+      where: {
+        pid: decodeURIComponent(datasetPid),
+      },
+      include: [
+        {
+          relation: "datablocks",
+        },
+      ],
+    };
+
+    return request(appUrl)
+      .get(
+        "/api/v3/Datasets/findOne?filter=" +
+        encodeURIComponent(JSON.stringify(filter))
+      )
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
+      .expect(TestData.SuccessfulGetStatusCode)
+      .expect("Content-Type", /json/)
+      .then((res) => {
+        res.body.datablocks.should.be
+          .instanceof(Array)
+          .and.to.have.length(2);
+      });
+  });
+
   it("0180: The size and numFiles fields in the dataset should be correctly updated", async () => {
     return request(appUrl)
       .get("/api/v3/Datasets/" + datasetPid)
@@ -178,6 +239,110 @@ describe("0750: DerivedDatasetDatablock: Test Datablocks and their relation to d
           .property("numberOfFiles")
           .and.equal(TestData.DataBlockCorrect.dataFileList.length * 2);
       });
+  });
+
+  it("0181: should delete all datablocks without auth", async () => {
+    return request(appUrl)
+      .delete(`/api/v3/datasets/${datasetPid}/Datablocks`)
+      .set("Accept", "application/json")
+      .expect(TestData.AccessForbiddenStatusCode)
+      .expect("Content-Type", /json/);
+  });
+
+  it("0182: should delete all datablocks with wrong auth", async () => {
+    return request(appUrl)
+      .delete(`/api/v3/datasets/${datasetPid}/Datablocks`)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenUser1}` })
+      .expect(TestData.AccessForbiddenStatusCode)
+      .expect("Content-Type", /json/);
+  });
+
+  it("0183: should delete all datablocks with non-existing pid", async () => {
+    return request(appUrl)
+      .delete(`/api/v3/datasets/123/Datablocks`)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenArchiveManager}` })
+      .expect(TestData.NotFoundStatusCode)
+      .expect("Content-Type", /json/);
+  });
+
+  [null, undefined, "", 0, false].forEach((pid, i) => {
+    it(`018${4 + i}: should delete all datablocks with ${pid} pid`, async () => {
+      return request(appUrl)
+        .delete(`/api/v3/datasets/${pid}/Datablocks`)
+        .set("Accept", "application/json")
+        .set({ Authorization: `Bearer ${accessTokenArchiveManager}` })
+        .expect(TestData.NotFoundStatusCode)
+        .expect("Content-Type", /json/);
+    });
+  });
+
+  it("0189: should delete all datablocks attached to dataset", async () => {
+    const dataset2 = await request(appUrl)
+      .post("/api/v3/Datasets")
+      .send(TestData.DerivedCorrect)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
+      .expect(TestData.EntryCreatedStatusCode)
+      .expect("Content-Type", /json/)
+    const datasetPid2 = encodeURIComponent(dataset2.body["pid"]);
+
+    await request(appUrl)
+      .post(`/api/v3/datasets/${datasetPid2}/Datablocks`)
+      .send({ ...TestData.DataBlockCorrect, archiveId: "delete-all-archive1" })
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
+      .expect(TestData.EntryCreatedStatusCode)
+      .expect("Content-Type", /json/)
+
+    await request(appUrl)
+      .post(`/api/v3/datasets/${datasetPid2}/Datablocks`)
+      .send({ ...TestData.DataBlockCorrect, archiveId: "delete-all-archive2" })
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
+      .expect(TestData.EntryCreatedStatusCode)
+      .expect("Content-Type", /json/)
+
+    await request(appUrl)
+      .get(`/api/v3/Datasets/${datasetPid2}`)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
+      .expect(TestData.SuccessfulGetStatusCode)
+      .expect("Content-Type", /json/)
+      .then((res) => {
+        res.body.should.have.property("size").and.be.greaterThan(0);
+        res.body.should.have.property("packedSize").and.be.greaterThan(0);
+        res.body.should.have.property("numberOfFiles").and.be.greaterThan(0);
+        res.body.should.have.property("numberOfFilesArchived").and.be.greaterThan(0);
+      });
+
+    await request(appUrl)
+      .delete(`/api/v3/datasets/${datasetPid2}/Datablocks`)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenArchiveManager}` })
+      .expect(TestData.SuccessfulDeleteStatusCode)
+      .expect("Content-Type", /json/);
+
+    await request(appUrl)
+      .get(`/api/v3/Datasets/${datasetPid2}`)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenAdminIngestor}` })
+      .expect(TestData.SuccessfulGetStatusCode)
+      .expect("Content-Type", /json/)
+      .then((res) => {
+        res.body.should.have.property("size").and.equal(0);
+        res.body.should.have.property("packedSize").and.equal(0);
+        res.body.should.have.property("numberOfFiles").and.equal(0);
+        res.body.should.have.property("numberOfFilesArchived").and.equal(0);
+      });
+
+    await request(appUrl)
+      .delete(`/api/v3/Datasets/${datasetPid2}`)
+      .set("Accept", "application/json")
+      .set({ Authorization: `Bearer ${accessTokenArchiveManager}` })
+      .expect(TestData.SuccessfulDeleteStatusCode)
+      .expect("Content-Type", /json/);
   });
 
   it("0190: should delete first datablock", async () => {
