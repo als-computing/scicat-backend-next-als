@@ -19,6 +19,7 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const apiVersion = configService.get<string>("versions.api");
   const swaggerPath = `${configService.get<string>("swaggerPath")}`;
+  const apiPathPrefix = `${configService.get<string>("apiPathPrefix")}`;
 
   const scicatLogger = app.get<ScicatLogger>(ScicatLogger);
 
@@ -28,7 +29,7 @@ async function bootstrap() {
 
   app.enableCors();
 
-  app.setGlobalPrefix("api");
+  app.setGlobalPrefix(apiPathPrefix);
 
   // NOTE: This is a workaround to enable versioning for individual routes
   // Version decorator can be used to specify the version for a route
