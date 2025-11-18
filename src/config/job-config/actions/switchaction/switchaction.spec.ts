@@ -1,10 +1,12 @@
-import { SwitchCreateJobAction } from "./switchaction";
+import { SwitchJobAction } from "./switchaction";
 import { CreateJobDto } from "../../../../jobs/dto/create-job.dto";
-import { SwitchJobActionOptions, SwitchScope } from "./switchaction.interface";
+import { SwitchJobActionOptions, SwitchPhase } from "./switchaction.interface";
 import { Test } from "@nestjs/testing";
 import {
   CREATE_JOB_ACTION_CREATORS,
   JobAction,
+  JobPerformContext,
+  JobValidateContext,
 } from "../../jobconfig.interface";
 import { ModuleRef } from "@nestjs/core";
 import { JobClass } from "src/jobs/schemas/job.schema";
@@ -14,13 +16,13 @@ import { DatasetsService } from "src/datasets/datasets.service";
 interface MockAction {
   getActionType: () => string;
   validate: jest.Mock;
-  performJob: jest.Mock;
+  perform: jest.Mock;
 }
 function makeMockAction(actionType: string): MockAction {
   return {
     getActionType: () => actionType,
     validate: jest.fn(async () => {}),
-    performJob: jest.fn(async () => {}),
+    perform: jest.fn(async () => {}),
   };
 }
 
@@ -102,10 +104,10 @@ function expectCalled(expectedCase: JobAction<CreateJobDto>) {
   for (const mockCase of mockCases) {
     if (mockCase === expectedCase) {
       expect(mockCase.validate).toHaveBeenCalled();
-      expect(mockCase.performJob).toHaveBeenCalled();
+      expect(mockCase.perform).toHaveBeenCalled();
     } else {
       expect(mockCase.validate).not.toHaveBeenCalled();
-      expect(mockCase.performJob).not.toHaveBeenCalled();
+      expect(mockCase.perform).not.toHaveBeenCalled();
     }
   }
 }
@@ -134,12 +136,12 @@ async function makeModuleRef() {
 }
 
 describe("SwitchAction", () => {
-  describe("with request scope", () => {
+  describe("with request property", () => {
     // Job Config file
     const config: SwitchJobActionOptions = {
       actionType: "switch",
-      scope: SwitchScope.Request,
-      property: "jobParams.status",
+      phase: SwitchPhase.All,
+      property: "request.jobParams.status",
       cases: [
         {
           match: "string_match",
@@ -163,12 +165,12 @@ describe("SwitchAction", () => {
 
     // module for resolving creators
     let moduleRef: ModuleRef;
-    let action: SwitchCreateJobAction;
+    let action: SwitchJobAction<CreateJobDto>;
 
     beforeAll(async () => {
       moduleRef = await makeModuleRef();
 
-      action = new SwitchCreateJobAction(
+      action = new SwitchJobAction<CreateJobDto>(
         moduleRef,
         config,
         CREATE_JOB_ACTION_CREATORS,
@@ -183,7 +185,7 @@ describe("SwitchAction", () => {
       // Clear mock functions
       mockCases.forEach((mockCase) => {
         mockCase.validate.mockClear();
-        mockCase.performJob.mockClear();
+        mockCase.perform.mockClear();
       });
     });
 
@@ -200,9 +202,14 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: [],
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseString);
     });
@@ -215,9 +222,14 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: [],
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseRegex);
     });
@@ -230,9 +242,14 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: [],
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseRegex);
     });
@@ -245,9 +262,14 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: [],
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseRegex);
     });
@@ -260,9 +282,14 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: [],
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseSchema);
     });
@@ -275,20 +302,25 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: [],
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseDefault);
     });
   });
 
-  describe("with datasets scope", () => {
+  describe("with datasets property", () => {
     // Job Config file
     const config: SwitchJobActionOptions = {
       actionType: "switch",
-      scope: SwitchScope.Datasets,
-      property: "datasetlifecycle.archivable",
+      phase: SwitchPhase.All,
+      property: "datasets[*].datasetlifecycle.archivable",
       cases: [
         {
           match: true,
@@ -303,12 +335,12 @@ describe("SwitchAction", () => {
 
     // module for resolving creators
     let moduleRef: ModuleRef;
-    let action: SwitchCreateJobAction;
+    let action: SwitchJobAction<CreateJobDto>;
 
     beforeAll(async () => {
       moduleRef = await makeModuleRef();
 
-      action = new SwitchCreateJobAction(
+      action = new SwitchJobAction<CreateJobDto>(
         moduleRef,
         config,
         CREATE_JOB_ACTION_CREATORS,
@@ -323,7 +355,7 @@ describe("SwitchAction", () => {
       // Clear mock functions
       mockCases.forEach((mockCase) => {
         mockCase.validate.mockClear();
-        mockCase.performJob.mockClear();
+        mockCase.perform.mockClear();
       });
 
       findAll.mockClear();
@@ -334,28 +366,30 @@ describe("SwitchAction", () => {
       expect(action["validate"]).toBeDefined();
     });
 
-    it("should fail without a dataset", async () => {
-      findAll.mockResolvedValue([mockDataset]);
+    it("should call default without a dataset", async () => {
+      // Not specifying any datasets evaluates to undefined, which matches the default case
+      const datasets = [mockDataset];
+      findAll.mockResolvedValue(datasets);
       const jobDto: CreateJobDto = {
         type: "test",
         jobParams: {},
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
-      await expect(action.validate(context)).rejects.toThrowError(
-        "'jobParams.datasetList' is required.",
-      );
-      await expect(action.performJob(context)).rejects.toThrowError(
-        "'jobParams.datasetList' is required.",
-      );
-      expect(caseString.validate).not.toHaveBeenCalled();
-      expect(caseString.performJob).not.toHaveBeenCalled();
-      expect(caseDefault.validate).not.toHaveBeenCalled();
-      expect(caseDefault.performJob).not.toHaveBeenCalled();
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: [],
+        env: {},
+      };
+      await expect(action.validate(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
+
+      expectCalled(caseDefault);
     });
 
     it("should match archivable==true", async () => {
-      findAll.mockResolvedValue([mockDataset]);
+      const datasets = [mockDataset];
+      findAll.mockResolvedValue(datasets);
       const jobDto: CreateJobDto = {
         type: "test",
         jobParams: {
@@ -368,15 +402,20 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: datasets,
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseString);
     });
 
     it("shouldn't match archivable==false", async () => {
-      findAll.mockResolvedValue([
+      const datasets = [
         {
           ...mockDataset,
           datasetlifecycle: {
@@ -384,7 +423,8 @@ describe("SwitchAction", () => {
             archivable: false,
           },
         },
-      ]);
+      ];
+      findAll.mockResolvedValue(datasets);
       const jobDto: CreateJobDto = {
         type: "test",
         jobParams: {
@@ -397,21 +437,27 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: datasets,
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseDefault);
     });
 
     it("should pass with multiple consistent datasets", async () => {
-      findAll.mockResolvedValue([
+      const datasets = [
         mockDataset,
         {
           ...mockDataset,
           pid: "otherPid",
         },
-      ]);
+      ];
+      findAll.mockResolvedValue(datasets);
       const jobDto: CreateJobDto = {
         type: "test",
         jobParams: {
@@ -428,15 +474,20 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: datasets,
+        env: {},
+      };
       await expect(action.validate(context)).resolves.toBeUndefined();
-      await expect(action.performJob(context)).resolves.toBeUndefined();
+      await expect(action.perform(context)).resolves.toBeUndefined();
 
       expectCalled(caseString);
     });
 
     it("should fail with ambiguous datasets", async () => {
-      findAll.mockResolvedValue([
+      const datasets = [
         mockDataset,
         {
           ...mockDataset,
@@ -446,7 +497,8 @@ describe("SwitchAction", () => {
             archivable: false,
           },
         },
-      ]);
+      ];
+      findAll.mockResolvedValue(datasets);
       const jobDto: CreateJobDto = {
         type: "test",
         jobParams: {
@@ -463,17 +515,22 @@ describe("SwitchAction", () => {
         },
       };
 
-      const context = { request: jobDto, job: jobDto as JobClass, env: {} };
-      await expect(action.validate(context)).rejects.toThrowError(
-        "Ambiguous value for 'datasetlifecycle.archivable' in datasets scope.'",
+      const context = {
+        request: jobDto,
+        job: jobDto as JobClass,
+        datasets: datasets,
+        env: {},
+      };
+      await expect(action.validate(context)).rejects.toThrow(
+        "Ambiguous value for 'datasets[*].datasetlifecycle.archivable' (2 distinct results).'",
       );
-      await expect(action.performJob(context)).rejects.toThrowError(
-        "Ambiguous value for 'datasetlifecycle.archivable' in datasets scope.'",
+      await expect(action.perform(context)).rejects.toThrow(
+        "Ambiguous value for 'datasets[*].datasetlifecycle.archivable' (2 distinct results).'",
       );
       expect(caseString.validate).not.toHaveBeenCalled();
-      expect(caseString.performJob).not.toHaveBeenCalled();
+      expect(caseString.perform).not.toHaveBeenCalled();
       expect(caseDefault.validate).not.toHaveBeenCalled();
-      expect(caseDefault.performJob).not.toHaveBeenCalled();
+      expect(caseDefault.perform).not.toHaveBeenCalled();
     });
   });
 
@@ -484,8 +541,8 @@ describe("SwitchAction", () => {
     // Job Config file
     const config: SwitchJobActionOptions = {
       actionType: "switch",
-      scope: SwitchScope.Request,
-      property: "id",
+      phase: SwitchPhase.All,
+      property: "job.id",
       cases: [
         {
           schema: { type: "string" },
@@ -499,12 +556,12 @@ describe("SwitchAction", () => {
 
     // module for resolving creators
     let moduleRef: ModuleRef;
-    let action: SwitchCreateJobAction;
+    let action: SwitchJobAction<CreateJobDto>;
 
     beforeAll(async () => {
       moduleRef = await makeModuleRef();
 
-      action = new SwitchCreateJobAction(
+      action = new SwitchJobAction<CreateJobDto>(
         moduleRef,
         config,
         CREATE_JOB_ACTION_CREATORS,
@@ -519,7 +576,7 @@ describe("SwitchAction", () => {
       // Clear mock functions
       mockCases.forEach((mockCase) => {
         mockCase.validate.mockClear();
-        mockCase.performJob.mockClear();
+        mockCase.perform.mockClear();
       });
     });
 
@@ -528,30 +585,38 @@ describe("SwitchAction", () => {
       expect(action["validate"]).toBeDefined();
     });
 
-    it("should fail", async () => {
+    it("should fall back to default during validation", async () => {
       const jobDto: CreateJobDto = {
         type: "test",
         jobParams: {},
       };
-
-      // Works in perform phase with a real job
-      const context = {
+      // No job set during the validate phase
+      const validateContext = {
         request: jobDto,
-        job: { ...jobDto, id: "testId" } as JobClass,
         env: {},
-      };
-      await expect(action.performJob(context)).rejects.toThrowError(
-        "No value for 'id' in request scope.",
-      );
+      } as JobValidateContext<CreateJobDto>;
+      await expect(action.validate(validateContext)).resolves.toBeUndefined();
 
-      // fails in validate phase with a DTO
-      await expect(action.validate(context)).rejects.toThrowError(
-        "No value for 'id' in request scope.",
-      );
+      // No match; call default case
       expect(caseString.validate).not.toHaveBeenCalled();
-      expect(caseString.performJob).not.toHaveBeenCalled();
-      expect(caseDefault.validate).not.toHaveBeenCalled();
-      expect(caseDefault.performJob).not.toHaveBeenCalled();
+      expect(caseDefault.validate).toHaveBeenCalled();
+    });
+
+    it("should match during perform", async () => {
+      const jobDto: CreateJobDto = {
+        type: "test",
+        jobParams: {},
+      };
+      // job is set during the perform phase
+      const performContext = {
+        request: jobDto,
+        job: { ...jobDto, id: "testId" },
+        env: {},
+      } as JobPerformContext<CreateJobDto>;
+      await expect(action.perform(performContext)).resolves.toBeUndefined();
+
+      expect(caseString.perform).toHaveBeenCalled();
+      expect(caseDefault.perform).not.toHaveBeenCalled();
     });
   });
 });

@@ -65,7 +65,7 @@ export const initialSyncTransform = (obj: DatasetClass) => {
           const transformedKey = transformKey(key);
 
           if (!isObject(value)) {
-            return [transformedKey, value];
+            return [transformedKey, { value: value, unit: "" }];
           }
 
           if ("value" in value) {
@@ -119,9 +119,14 @@ export const convertToElasticSearchQuery = (
           const { operation, value, field } =
             extractNestedQueryOperationValue(orQuery);
           const filterType = operation === "eq" ? "term" : "range";
+
+          // NOTE: if value is not a number, we use keyword field for exact match
+          const targetField =
+            typeof value !== "number" ? `${field}.keyword` : field;
           return {
             [filterType]: {
-              [field]: operation === "eq" ? value : { [operation]: value },
+              [targetField]:
+                operation === "eq" ? value : { [operation]: value },
             },
           };
         });
@@ -137,9 +142,13 @@ export const convertToElasticSearchQuery = (
         const { operation, value, field } =
           extractNestedQueryOperationValue(query);
         const filterType = operation === "eq" ? "term" : "range";
+
+        // NOTE: if value is not a number, we use keyword field for exact match
+        const targetField =
+          typeof value !== "number" ? `${field}.keyword` : field;
         return {
           [filterType]: {
-            [field]: operation === "eq" ? value : { [operation]: value },
+            [targetField]: operation === "eq" ? value : { [operation]: value },
           },
         };
       });
@@ -149,9 +158,34 @@ export const convertToElasticSearchQuery = (
           minimum_should_match: 1,
         },
       });
+    } else if (
+      Object.keys(query).length > 1 &&
+      !Array.isArray(query) &&
+      isObject(query)
+    ) {
+      const { transformedKey, firstPart, middlePart, lastPart } =
+        transformMiddleKey(field);
+
+      const rangeOps: Record<string, number> = {};
+
+      Object.keys(query).forEach((op) => {
+        const val = query[op];
+        rangeOps[op.replace("$", "")] =
+          typeof val === "number" ? val : Number(val);
+      });
+
+      if (lastPart === "valueSI" || lastPart === "value") {
+        filters.push({
+          term: {
+            [`${firstPart}.${middlePart}.value_type`]: "number",
+          },
+        });
+      }
+      filters.push({
+        range: { [transformedKey]: rangeOps },
+      });
     } else {
       const operation = Object.keys(query)[0];
-
       const value =
         typeof (query as Record<string, "eq">)[operation] === "string"
           ? (query as Record<string, "eq">)[operation].trim()
@@ -176,10 +210,15 @@ export const convertToElasticSearchQuery = (
         filters.push(numberFilter);
       }
 
+      // NOTE: if value is not a number, we use keyword field for exact match for term queries
+      // for range queries we can skip this as string values will not be accepted
+      const targetField =
+        typeof value !== "number" ? `${field}.keyword` : field;
+
       const filter =
         esOperation === "eq"
           ? {
-              term: { [`${transformedKey}`]: value },
+              term: { [`${targetField}`]: value },
             }
           : {
               range: { [`${transformedKey}`]: { [esOperation]: value } },

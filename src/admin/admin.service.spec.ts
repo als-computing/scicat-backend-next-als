@@ -21,7 +21,6 @@ const mockConfig: Record<string, unknown> = {
   loginFacilityEnabled: true,
   loginLdapEnabled: true,
   loginLocalEnabled: true,
-  localLoginLabel: "Local",
   fileColorEnabled: true,
   fileDownloadEnabled: true,
   gettingStarted: null,
@@ -64,9 +63,6 @@ const mockConfig: Record<string, unknown> = {
   metadataEditingUnitListDisabled: true,
   datafilesActionsEnabled: true,
   datafilesActions: [],
-  labelMaps: {
-    filters: {},
-  },
   defaultDatasetsListSettings: {
     columns: [],
     filters: [],

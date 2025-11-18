@@ -1,23 +1,24 @@
 import {
+  BadRequestException,
   Body,
+  ConflictException,
   Controller,
-  Get,
-  Param,
-  Post,
-  Patch,
-  Put,
   Delete,
-  Query,
-  UseGuards,
-  UseInterceptors,
+  ForbiddenException,
+  Get,
   HttpCode,
   HttpStatus,
-  NotFoundException,
-  Req,
-  BadRequestException,
-  ForbiddenException,
   InternalServerErrorException,
-  ConflictException,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+  UseInterceptors,
+  UsePipes,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -30,54 +31,63 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
+import { validate } from "class-validator";
 import { Request } from "express";
-import { MongoError } from "mongodb";
 import * as jmp from "json-merge-patch";
+import { MongoError } from "mongodb";
+import { Action } from "src/casl/action.enum";
+import { AppAbility, CaslAbilityFactory } from "src/casl/casl-ability.factory";
+import { CheckPolicies } from "src/casl/decorators/check-policies.decorator";
+import { PoliciesGuard } from "src/casl/guards/policies.guard";
+import { FormatPhysicalQuantitiesInterceptor } from "src/common/interceptors/format-physical-quantities.interceptor";
+import { UTCTimeInterceptor } from "src/common/interceptors/utc-time.interceptor";
+import { IFacets, IFilters } from "src/common/interfaces/common.interface";
 import { IsRecord, IsValueUnitObject } from "../common/utils";
 import { DatasetsService } from "./datasets.service";
-import { DatasetClass, DatasetDocument } from "./schemas/dataset.schema";
-import { PoliciesGuard } from "src/casl/guards/policies.guard";
-import { CheckPolicies } from "src/casl/decorators/check-policies.decorator";
-import { AppAbility, CaslAbilityFactory } from "src/casl/casl-ability.factory";
-import { Action } from "src/casl/action.enum";
+import { SubDatasetsPublicInterceptor } from "./interceptors/datasets-public.interceptor";
 import {
   IDatasetFields,
   IDatasetFiltersV4,
 } from "./interfaces/dataset-filters.interface";
-import { SubDatasetsPublicInterceptor } from "./interceptors/datasets-public.interceptor";
-import { UTCTimeInterceptor } from "src/common/interceptors/utc-time.interceptor";
-import { FormatPhysicalQuantitiesInterceptor } from "src/common/interceptors/format-physical-quantities.interceptor";
-import { IFacets, IFilters } from "src/common/interfaces/common.interface";
-import { validate } from "class-validator";
-import { HistoryInterceptor } from "src/common/interceptors/history.interceptor";
+import { DatasetClass, DatasetDocument } from "./schemas/dataset.schema";
 
-import { HistoryClass } from "./schemas/history.schema";
-import { TechniqueClass } from "./schemas/technique.schema";
-import { RelationshipClass } from "./schemas/relationship.schema";
+import { plainToInstance } from "class-transformer";
 import { JWTUser } from "src/auth/interfaces/jwt-user.interface";
-import { LogbooksService } from "src/logbooks/logbooks.service";
-import { CreateDatasetDto } from "./dto/create-dataset.dto";
-import {
-  PartialUpdateDatasetDto,
-  UpdateDatasetDto,
-} from "./dto/update-dataset.dto";
-import { Logbook } from "src/logbooks/schemas/logbook.schema";
-import {
-  OutputDatasetDto,
-  PartialOutputDatasetDto,
-} from "./dto/output-dataset.dto";
 import {
   CountApiResponse,
   FullFacetFilters,
   FullFacetResponse,
   IsValidResponse,
 } from "src/common/types";
-import { DatasetLookupKeysEnum } from "./types/dataset-lookup";
-import { IncludeValidationPipe } from "./pipes/include-validation.pipe";
+import { LogbooksService } from "src/logbooks/logbooks.service";
+import { Logbook } from "src/logbooks/schemas/logbook.schema";
+import { CreateDatasetDto } from "./dto/create-dataset.dto";
+import {
+  OutputDatasetDto,
+  PartialOutputDatasetDto,
+} from "./dto/output-dataset.dto";
+import {
+  PartialUpdateDatasetDto,
+  PartialUpdateDatasetLifecycleDto,
+  UpdateDatasetDto,
+  UpdateDatasetLifecycleDto,
+} from "./dto/update-dataset.dto";
+import {
+  DatasetLookupKeysEnum,
+  DATASET_LOOKUP_FIELDS,
+  ALLOWED_DATASET_KEYS,
+  ALLOWED_DATASET_FILTER_KEYS,
+} from "./types/dataset-lookup";
+import { IncludeValidationPipe } from "src/common/pipes/include-validation.pipe";
 import { PidValidationPipe } from "./pipes/pid-validation.pipe";
-import { FilterValidationPipe } from "./pipes/filter-validation.pipe";
+import { FilterValidationPipe } from "src/common/pipes/filter-validation.pipe";
 import { getSwaggerDatasetFilterContent } from "./types/dataset-filter-content";
-import { plainToInstance } from "class-transformer";
+
+import { ScientificMetadataValidationPipe } from "./pipes/scientific-metadata-validation.pipe";
+import { HistoryClass } from "./schemas/history.schema";
+import { LifecycleClass } from "./schemas/lifecycle.schema";
+import { RelationshipClass } from "./schemas/relationship.schema";
+import { TechniqueClass } from "./schemas/technique.schema";
 
 @ApiBearerAuth()
 @ApiExtraModels(
@@ -87,6 +97,11 @@ import { plainToInstance } from "class-transformer";
   RelationshipClass,
 )
 @ApiTags("datasets v4")
+/* NOTE: Generated SDK method names include "V4" twice:
+ *  - From the controller class name (DatasetsV4Controller)
+ *  - From the route version (`version: '4'`)
+ * This is intentional for versioned routing.
+ */
 @Controller({ path: "datasets", version: "4" })
 export class DatasetsV4Controller {
   constructor(
@@ -155,7 +170,13 @@ export class DatasetsV4Controller {
     } else if (group == Action.DatasetUpdate) {
       canDoAction =
         ability.can(Action.DatasetUpdateAny, DatasetClass) ||
-        ability.can(Action.DatasetUpdateOwner, datasetInstance);
+        ability.can(Action.DatasetUpdateOwner, datasetInstance) ||
+        ability.can(Action.DatasetLifecycleUpdate, datasetInstance);
+    } else if (group == Action.DatasetLifecycleUpdate) {
+      canDoAction =
+        ability.can(Action.DatasetUpdateAny, DatasetClass) ||
+        ability.can(Action.DatasetUpdateOwner, datasetInstance) ||
+        ability.can(Action.DatasetLifecycleUpdateAny, datasetInstance);
     } else if (group == Action.DatasetDelete) {
       canDoAction =
         ability.can(Action.DatasetDeleteAny, DatasetClass) ||
@@ -291,6 +312,7 @@ export class DatasetsV4Controller {
     new UTCTimeInterceptor<DatasetClass>(["endTime"]),
     new FormatPhysicalQuantitiesInterceptor<DatasetClass>("scientificMetadata"),
   )
+  @UsePipes(ScientificMetadataValidationPipe)
   @Post()
   @ApiOperation({
     summary:
@@ -326,7 +348,7 @@ export class DatasetsV4Controller {
     } catch (error) {
       if ((error as MongoError).code === 11000) {
         throw new ConflictException(
-          "A dataset with this this unique key already exists!",
+          `A dataset with pid ${datasetDto.pid?.trim() ? datasetDto.pid : "unknown"} already exists!`,
         );
       } else {
         throw new InternalServerErrorException(
@@ -400,7 +422,8 @@ export class DatasetsV4Controller {
   })
   @ApiQuery({
     name: "filter",
-    description: "Database filters to apply when retrieving datasets",
+    description:
+      "Database filters to apply when retrieving datasets <br> ⚠️ Do not include both a parent field (e.g. 'proposals') and its subfields (e.g. 'proposals.type') in the same request, as this will cause a path collision error. ",
     required: false,
     type: String,
     content: getSwaggerDatasetFilterContent(),
@@ -413,7 +436,14 @@ export class DatasetsV4Controller {
   })
   async findAll(
     @Req() request: Request,
-    @Query("filter", new FilterValidationPipe(), new IncludeValidationPipe())
+    @Query(
+      "filter",
+      new FilterValidationPipe(
+        ALLOWED_DATASET_KEYS,
+        ALLOWED_DATASET_FILTER_KEYS,
+      ),
+      new IncludeValidationPipe(DATASET_LOOKUP_FIELDS),
+    )
     queryFilter: string,
   ): Promise<PartialOutputDatasetDto[]> {
     const parsedFilter = JSON.parse(queryFilter ?? "{}");
@@ -564,7 +594,7 @@ export class DatasetsV4Controller {
   @ApiOperation({
     summary: "It returns the first dataset found.",
     description:
-      "It returns the first dataset of the ones that matches the filter provided. The list returned can be modified by providing a filter.",
+      "It returns the first dataset of the ones that matches the filter provided. The list returned can be modified by providing a filter.<br> ⚠️ Do not include both a parent field (e.g. 'proposals') and its subfields (e.g. 'proposals.type') in the same request, as this will cause a path collision error.",
   })
   @ApiQuery({
     name: "filter",
@@ -585,7 +615,14 @@ export class DatasetsV4Controller {
   })
   async findOne(
     @Req() request: Request,
-    @Query("filter", new FilterValidationPipe(), new IncludeValidationPipe())
+    @Query(
+      "filter",
+      new FilterValidationPipe(
+        ALLOWED_DATASET_KEYS,
+        ALLOWED_DATASET_FILTER_KEYS,
+      ),
+      new IncludeValidationPipe(DATASET_LOOKUP_FIELDS),
+    )
     queryFilter: string,
   ): Promise<OutputDatasetDto | null> {
     const parsedFilter = JSON.parse(queryFilter ?? "{}");
@@ -631,12 +668,16 @@ export class DatasetsV4Controller {
     @Req() request: Request,
     @Query(
       "filter",
-      new FilterValidationPipe({
-        where: true,
-        include: false,
-        fields: false,
-        limits: false,
-      }),
+      new FilterValidationPipe(
+        ALLOWED_DATASET_KEYS,
+        ALLOWED_DATASET_FILTER_KEYS,
+        {
+          where: true,
+          include: false,
+          fields: false,
+          limits: false,
+        },
+      ),
     )
     queryFilter?: string,
   ) {
@@ -678,7 +719,7 @@ export class DatasetsV4Controller {
   async findById(
     @Req() request: Request,
     @Param("pid") id: string,
-    @Query("include", new IncludeValidationPipe())
+    @Query("include", new IncludeValidationPipe(DATASET_LOOKUP_FIELDS))
     include: DatasetLookupKeysEnum[] | DatasetLookupKeysEnum,
   ) {
     const includeArray = Array.isArray(include)
@@ -709,13 +750,18 @@ export class DatasetsV4Controller {
     new UTCTimeInterceptor<DatasetClass>(["creationTime"]),
     new UTCTimeInterceptor<DatasetClass>(["endTime"]),
     new FormatPhysicalQuantitiesInterceptor<DatasetClass>("scientificMetadata"),
-    HistoryInterceptor,
   )
+  @UsePipes(ScientificMetadataValidationPipe)
   @Patch("/:pid")
   @ApiOperation({
     summary: "It partially updates the dataset.",
-    description:
-      "It updates the dataset through the pid specified. It updates only the specified fields. Set `content-type` to `application/merge-patch+json` if you would like to update nested objects. Warning! `application/merge-patch+json` doesn’t support updating a specific item in an array — the result will always replace the entire target if it’s not an object.",
+    description: `It updates the dataset through the pid specified. It updates only the specified fields.
+Set \`content-type\` header to \`application/merge-patch+json\` if you would like to update nested objects.
+
+- In \`application/json\`, setting a property to \`null\` means "do not change this value."
+- In \`application/merge-patch+json\`, setting a property to \`null\` means "reset this value to \`null\`" (or the default value, if one is defined).
+
+**Caution:** \`application/merge-patch+json\` doesn't support updating a specific item in an array — the result will always replace the entire target if it's not an object.`,
   })
   @ApiParam({
     name: "pid",
@@ -778,6 +824,107 @@ export class DatasetsV4Controller {
     return updatedDataset;
   }
 
+  // GET /datasets/:id/datasetlifecycle
+  @UseGuards(PoliciesGuard)
+  @CheckPolicies("datasets", (ability: AppAbility) =>
+    ability.can(Action.DatasetRead, DatasetClass),
+  )
+  @Get("/:pid/datasetlifecycle")
+  @ApiOperation({
+    summary: "It returns dataset lifecycle.",
+    description:
+      "It return the dataset lifecycle of the dataset pid specified.",
+  })
+  @ApiParam({
+    name: "pid",
+    description: "Id of the dataset to return",
+    type: String,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: UpdateDatasetLifecycleDto,
+    isArray: false,
+    description: "Return dataset lifecycle of the dataset with pid specified",
+  })
+  async findLifecycleById(@Req() request: Request, @Param("pid") id: string) {
+    const dataset = await this.datasetsService.findOneComplete({
+      where: { pid: id },
+    });
+
+    await this.checkPermissionsForDatasetExtended(
+      request,
+      dataset,
+      Action.DatasetRead,
+    );
+
+    return dataset?.datasetlifecycle;
+  }
+
+  // PATCH /datasets/:id/datasetlifecycle
+  @UseGuards(PoliciesGuard)
+  @CheckPolicies("datasets", (ability: AppAbility) =>
+    ability.can(Action.DatasetLifecycleUpdate, DatasetClass),
+  )
+  @UseInterceptors(
+    new UTCTimeInterceptor<DatasetClass>(["creationTime"]),
+    new UTCTimeInterceptor<DatasetClass>(["endTime"]),
+  )
+  @Patch("/:pid/datasetlifecycle")
+  @ApiOperation({
+    summary: "It updates dataset lifecycle of the dataset.",
+    description:
+      "It updates the dataset lifecycle through the pid specified. It updates only the specified fields. Setting a property to \`null\` means reset this value default.",
+  })
+  @ApiParam({
+    name: "pid",
+    description: "Id of the dataset to modify",
+    type: String,
+  })
+  @ApiConsumes("application/merge-patch+json")
+  @ApiBody({
+    description:
+      "Dataset lifecycle fields that need to be updated in the dataset. Only the fields that need to be updated have to be passed in.",
+    required: true,
+    type: PartialUpdateDatasetLifecycleDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: UpdateDatasetLifecycleDto,
+    description:
+      "Update an existing dataset's lifecycle and return the whole datasetlifecycle of the dataset representation in SciCat",
+  })
+  async findByIdAndUpdateLifecycle(
+    @Req() request: Request,
+    @Param("pid") pid: string,
+    @Body()
+    updateDatasetLifecycleDto: PartialUpdateDatasetLifecycleDto,
+  ): Promise<LifecycleClass | null> {
+    const isEmpty = Object.values(updateDatasetLifecycleDto).every(
+      (value) => value === undefined,
+    );
+
+    if (isEmpty) {
+      throw new BadRequestException("dataset lifecycle DTO must not be empty");
+    }
+
+    const foundDataset = await this.datasetsService.findOne({
+      where: { pid },
+    });
+    if (!foundDataset) {
+      throw new NotFoundException(`dataset with pid ${pid} not found`);
+    }
+    await this.checkPermissionsForDatasetExtended(
+      request,
+      foundDataset,
+      Action.DatasetLifecycleUpdate,
+    );
+    const updatedDataset = await this.datasetsService.findByIdAndUpdate(
+      pid,
+      jmp.apply(foundDataset, { datasetlifecycle: updateDatasetLifecycleDto }),
+    );
+    return updatedDataset?.datasetlifecycle as LifecycleClass;
+  }
+
   // PUT /datasets/:id
   @UseGuards(PoliciesGuard)
   @CheckPolicies("datasets", (ability: AppAbility) =>
@@ -787,8 +934,8 @@ export class DatasetsV4Controller {
     new UTCTimeInterceptor<DatasetClass>(["creationTime"]),
     new UTCTimeInterceptor<DatasetClass>(["endTime"]),
     new FormatPhysicalQuantitiesInterceptor<DatasetClass>("scientificMetadata"),
-    HistoryInterceptor,
   )
+  @UsePipes(ScientificMetadataValidationPipe)
   @Put("/:pid")
   @ApiOperation({
     summary: "It updates the dataset.",

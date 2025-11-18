@@ -1,7 +1,6 @@
 import { PipeTransform, Injectable } from "@nestjs/common";
 import { BadRequestException } from "@nestjs/common/exceptions";
 import { isJsonString } from "src/common/utils";
-import { DATASET_LOOKUP_FIELDS } from "src/datasets/types/dataset-lookup";
 
 @Injectable()
 export class IncludeValidationPipe
@@ -19,16 +18,16 @@ export class IncludeValidationPipe
         ? JSON.parse(inValue ?? "{}").include
         : Array(inValue);
 
-    includeValueParsed?.map((field) => {
-      if (Object.keys(DATASET_LOOKUP_FIELDS).includes(field)) {
-        return field;
-      } else {
-        throw new BadRequestException(
-          `Provided include field ${JSON.stringify(field)} is not part of the dataset relations`,
-        );
-      }
-    });
-
+    if (
+      includeValueParsed &&
+      includeValueParsed.length != 1 &&
+      (!includeValueParsed.includes("datasets") ||
+        !includeValueParsed.includes("all"))
+    ) {
+      throw new BadRequestException(
+        `The 'include' filter must contain 'datasets' — it’s currently the only collection that can be merged. To include related data, add use Jobs/v4/datasetDetails endpoint`,
+      );
+    }
     return inValue;
   }
 }

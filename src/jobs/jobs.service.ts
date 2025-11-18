@@ -15,6 +15,8 @@ import {
   IFilters,
   ILimitsFilter,
 } from "src/common/interfaces/common.interface";
+import { JobLookupKeysEnum, JOB_LOOKUP_FIELDS } from "./types/job-lookup";
+import { parsePipelineProjection } from "src/common/utils";
 import {
   addCreatedByFields,
   addUpdatedByField,
@@ -22,15 +24,22 @@ import {
   createFullqueryFilter,
   parseLimitFilters,
 } from "src/common/utils";
-import { CreateJobDto } from "./dto/create-job.dto";
 import { UpdateJobDto } from "./dto/update-job.dto";
+import {
+  PartialOutputJobDto,
+  PartialIntermediateOutputJobDto,
+} from "./dto/output-job-v4.dto";
 import { JobClass, JobDocument } from "./schemas/job.schema";
 import { IJobFields } from "./interfaces/job-filters.interface";
 import { ConfigService } from "@nestjs/config";
+import { DatasetsAccessService } from "../datasets/datasets-access.service";
+import { mandatoryFields } from "./types/jobs-filter-content";
+import { isEmpty } from "lodash";
 
 @Injectable({ scope: Scope.REQUEST })
 export class JobsService {
   constructor(
+    private readonly datasetsAccessService: DatasetsAccessService,
     @InjectModel(JobClass.name) private jobModel: Model<JobDocument>,
     @Inject(REQUEST) private request: Request,
     private configService: ConfigService,
@@ -44,53 +53,128 @@ export class JobsService {
     }
   }
 
-  async create(createJobDto: CreateJobDto): Promise<JobDocument> {
+  async create(createJobDto: JobClass): Promise<JobDocument> {
     const username = this.getUsername();
+    const jobData = addCreatedByFields(createJobDto, username);
+    const statusCode =
+      createJobDto.statusCode ||
+      this.configService.get<string>("jobDefaultStatusCode")!;
+    const statusMessage =
+      createJobDto.statusMessage ||
+      this.configService.get<string>("jobDefaultStatusMessage")!;
     const createdJob = new this.jobModel(
-      this.addStatusFields(
-        addCreatedByFields(createJobDto, username),
-        this.configService.get<string>("jobDefaultStatusCode")!,
-        this.configService.get<string>("jobDefaultStatusMessage")!,
-      ),
+      this.addStatusFields(jobData, statusCode, statusMessage),
     );
     return createdJob.save();
   }
 
   async findByFilters(
     fields: FilterQuery<JobDocument> | undefined,
+    order?: string,
   ): Promise<JobClass[]> {
     const filters: FilterQuery<JobDocument> =
       createFullqueryFilter<JobDocument>(this.jobModel, "id", fields ?? {});
-    return this.jobModel.find(filters).exec();
+    const sort = parseLimitFilters({ order } as ILimitsFilter).sort;
+    return this.jobModel.find(filters).sort(sort).exec();
   }
 
   applyFilterLimits(
-    jobs: JobClass[],
+    jobs: PartialOutputJobDto[],
     limits: ILimitsFilter | undefined,
-  ): JobClass[] {
-    const modifiers: QueryOptions = parseLimitFilters(limits);
-    if (modifiers.sort) {
-      jobs = jobs.sort((a, b) => {
-        for (const [key, order] of Object.entries(modifiers.sort) as [
-          keyof JobClass,
-          1 | -1,
-        ][]) {
-          const aValue = a[key];
-          const bValue = b[key];
-          if (aValue === undefined || bValue === undefined) continue;
-          if (aValue < bValue) return order === 1 ? -1 : 1;
-          if (aValue > bValue) return order === 1 ? 1 : -1;
-        }
-        return 0;
-      });
+  ): PartialOutputJobDto[] {
+    if (limits?.skip) {
+      jobs = jobs.slice(limits.skip);
     }
-    if (modifiers.skip) {
-      jobs = jobs.slice(modifiers.skip);
-    }
-    if (modifiers.limit) {
-      jobs = jobs.slice(0, modifiers.limit);
+    if (limits?.limit) {
+      jobs = jobs.slice(0, limits.limit);
     }
     return jobs;
+  }
+
+  addLookupFields(
+    pipeline: PipelineStage[],
+    jobLookupFields?: JobLookupKeysEnum[],
+  ) {
+    let nested = false;
+    if (jobLookupFields?.includes(JobLookupKeysEnum.all)) {
+      jobLookupFields = Object.keys(JOB_LOOKUP_FIELDS).filter(
+        // exclude all itself and datsetDetails
+        (field) =>
+          field !== JobLookupKeysEnum.all &&
+          field !== JobLookupKeysEnum.datasetDetails,
+      ) as JobLookupKeysEnum[];
+    } else if (jobLookupFields?.includes(JobLookupKeysEnum.datasetDetails)) {
+      nested = true;
+    }
+
+    jobLookupFields?.forEach((field) => {
+      const fieldValue = structuredClone(JOB_LOOKUP_FIELDS[field]);
+
+      if (fieldValue) {
+        for (const stage of fieldValue) {
+          if ("$lookup" in stage && stage.$lookup) {
+            stage.$lookup.as = field;
+            stage.$lookup.pipeline = stage.$lookup.pipeline || [];
+            this.datasetsAccessService.addDatasetAccess(stage);
+
+            // adds lookup logic based on jobLookupFields
+            if (nested) {
+              for (const nestedLookup of stage.$lookup.pipeline) {
+                if ("$lookup" in nestedLookup && nestedLookup.$lookup) {
+                  this.datasetsAccessService.addRelationFieldAccess(
+                    nestedLookup as PipelineStage.Lookup,
+                  );
+                }
+              }
+            }
+          }
+          pipeline.push(stage);
+        }
+      }
+    });
+  }
+
+  async findJobComplete(
+    filter: FilterQuery<JobDocument>,
+  ): Promise<PartialIntermediateOutputJobDto[]> {
+    const whereFilter = filter.where ?? {};
+    let fieldsProjection: string[] | undefined;
+
+    if (filter.fields && filter.fields.length > 0) {
+      fieldsProjection = [
+        ...filter.fields,
+        ...mandatoryFields.filter((f) => !filter.fields.includes(f)),
+      ];
+    } else {
+      fieldsProjection = undefined;
+    }
+
+    const pipeline: PipelineStage[] = [{ $match: whereFilter }];
+
+    this.addLookupFields(pipeline, filter.include);
+    // fields in datasets relation
+
+    if (fieldsProjection && fieldsProjection.length > 0) {
+      const projectionFields = [...fieldsProjection];
+      const projection = parsePipelineProjection(projectionFields);
+      pipeline.push({ $project: projection });
+    } else {
+      // remove field datasetIds
+      pipeline.push({
+        $project: {
+          datasetIds: 0,
+        },
+      });
+    }
+
+    const sort = filter.sort ?? parseLimitFilters(filter.order).sort;
+    if (sort && !isEmpty(sort)) pipeline.push({ $sort: sort });
+
+    const data = await this.jobModel
+      .aggregate<PartialIntermediateOutputJobDto>(pipeline)
+      .exec();
+
+    return data || null;
   }
 
   async findAll(

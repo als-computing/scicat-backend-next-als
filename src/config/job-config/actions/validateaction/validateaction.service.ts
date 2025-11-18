@@ -10,7 +10,6 @@ import {
   isValidateJobActionOptions,
 } from "./validateaction.interface";
 import { CreateJobDto } from "src/jobs/dto/create-job.dto";
-import { ModuleRef } from "@nestjs/core";
 
 @Injectable()
 export class ValidateJobActionCreator implements JobActionCreator<JobDto> {
@@ -30,14 +29,14 @@ export class ValidateJobActionCreator implements JobActionCreator<JobDto> {
 export class ValidateCreateJobActionCreator
   implements JobActionCreator<CreateJobDto>
 {
-  constructor(private moduleRef: ModuleRef) {}
+  constructor() {}
 
   public create<Options extends JobActionOptions>(options: Options) {
     if (!isValidateCreateJobActionOptions(options)) {
       throw new Error(
-        "Invalid options for validate action: ${JSON.stringify(options)}",
+        `Invalid options for validate action: ${JSON.stringify(options)}`,
       );
     }
-    return new ValidateCreateJobAction(this.moduleRef, options);
+    return new ValidateCreateJobAction(options);
   }
 }

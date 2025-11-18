@@ -11,12 +11,14 @@ import { ConfigService } from "@nestjs/config";
 import { Attachment } from "src/attachments/schemas/attachment.schema";
 import { JWTUser } from "src/auth/interfaces/jwt-user.interface";
 import { AccessGroupsType } from "src/config/configuration";
-// import { Role } from "src/auth/role.enum";
+import { JobConfig } from "src/config/job-config/jobconfig.interface";
+import { JobConfigService } from "src/config/job-config/jobconfig.service";
 import { Datablock } from "src/datablocks/schemas/datablock.schema";
 import { DatasetClass } from "src/datasets/schemas/dataset.schema";
 import { ElasticSearchActions } from "src/elastic-search/dto";
 import { Instrument } from "src/instruments/schemas/instrument.schema";
 import { JobClass } from "src/jobs/schemas/job.schema";
+import { CreateJobAuth, UpdateJobAuth } from "src/jobs/types/jobs-auth.enum";
 import { Logbook } from "src/logbooks/schemas/logbook.schema";
 import { OrigDatablock } from "src/origdatablocks/schemas/origdatablock.schema";
 import { Policy } from "src/policies/schemas/policy.schema";
@@ -27,9 +29,6 @@ import { UserIdentity } from "src/users/schemas/user-identity.schema";
 import { UserSettings } from "src/users/schemas/user-settings.schema";
 import { User } from "src/users/schemas/user.schema";
 import { Action } from "./action.enum";
-import { JobConfigService } from "src/config/job-config/jobconfig.service";
-import { CreateJobAuth, UpdateJobAuth } from "src/jobs/types/jobs-auth.enum";
-import { JobConfig } from "src/config/job-config/jobconfig.interface";
 
 type Subjects =
   | string
@@ -49,6 +48,7 @@ type Subjects =
       | typeof UserIdentity
       | typeof UserSettings
       | typeof ElasticSearchActions
+      | typeof Datablock
     >
   | "all";
 type PossibleAbilities = [Action, Subjects];
@@ -82,6 +82,8 @@ export class CaslAbilityFactory {
     samples: this.samplesEndpointAccess,
     users: this.userEndpointAccess,
     attachments: this.attachmentEndpointAccess,
+    history: this.historyEndpointAccess,
+    datablocks: this.datablockEndpointAccess,
   };
 
   endpointAccess(endpoint: string, user: JWTUser) {
@@ -124,6 +126,7 @@ export class CaslAbilityFactory {
       cannot(Action.DatasetCreate, DatasetClass);
       cannot(Action.DatasetRead, DatasetClass);
       cannot(Action.DatasetUpdate, DatasetClass);
+      cannot(Action.DatasetLifecycleUpdate, DatasetClass);
       // -
       cannot(Action.DatasetAttachmentCreate, DatasetClass);
       can(Action.DatasetAttachmentRead, DatasetClass);
@@ -174,6 +177,7 @@ export class CaslAbilityFactory {
         can(Action.DatasetCreate, DatasetClass);
         can(Action.DatasetRead, DatasetClass);
         can(Action.DatasetUpdate, DatasetClass);
+        can(Action.DatasetLifecycleUpdate, DatasetClass);
         // -
         can(Action.DatasetAttachmentCreate, DatasetClass);
         can(Action.DatasetAttachmentRead, DatasetClass);
@@ -201,6 +205,7 @@ export class CaslAbilityFactory {
         can(Action.DatasetCreate, DatasetClass);
         can(Action.DatasetRead, DatasetClass);
         can(Action.DatasetUpdate, DatasetClass);
+        can(Action.DatasetLifecycleUpdate, DatasetClass);
         // -
         can(Action.DatasetAttachmentCreate, DatasetClass);
         can(Action.DatasetAttachmentRead, DatasetClass);
@@ -229,6 +234,7 @@ export class CaslAbilityFactory {
         can(Action.DatasetCreate, DatasetClass);
         can(Action.DatasetRead, DatasetClass);
         can(Action.DatasetUpdate, DatasetClass);
+        can(Action.DatasetLifecycleUpdate, DatasetClass);
         // -
         can(Action.DatasetAttachmentCreate, DatasetClass);
         can(Action.DatasetAttachmentRead, DatasetClass);
@@ -257,6 +263,7 @@ export class CaslAbilityFactory {
         can(Action.DatasetCreate, DatasetClass);
         can(Action.DatasetRead, DatasetClass);
         can(Action.DatasetUpdate, DatasetClass);
+        can(Action.DatasetLifecycleUpdate, DatasetClass);
         // -
         can(Action.DatasetAttachmentCreate, DatasetClass);
         can(Action.DatasetAttachmentRead, DatasetClass);
@@ -276,10 +283,21 @@ export class CaslAbilityFactory {
         /**
         /*  authenticated users
         **/
+        if (
+          user.currentGroups.some((g) =>
+            this.accessGroups?.updateDatasetLifecycle.includes(g),
+          )
+        ) {
+          /**
+          /*  users belonging to UPDATE_DATASET_LIFECYCLE_GROUPS
+          **/
 
+          can(Action.DatasetLifecycleUpdate, DatasetClass);
+        } else {
+          cannot(Action.DatasetLifecycleUpdate, DatasetClass);
+        }
         cannot(Action.DatasetCreate, DatasetClass);
         can(Action.DatasetRead, DatasetClass);
-        cannot(Action.DatasetUpdate, DatasetClass);
         // -
         cannot(Action.DatasetAttachmentCreate, DatasetClass);
         can(Action.DatasetAttachmentRead, DatasetClass);
@@ -398,6 +416,223 @@ export class CaslAbilityFactory {
         can(Action.AttachmentCreateEndpoint, Attachment);
         can(Action.AttachmentUpdateEndpoint, Attachment);
         can(Action.AttachmentDeleteEndpoint, Attachment);
+      }
+    }
+
+    return build({
+      detectSubjectType: (item) =>
+        item.constructor as ExtractSubjectType<Subjects>,
+    });
+  }
+
+  /**
+   * Controls user access to the history endpoints based on role-based permissions.
+   *
+   * This method implements the authorization logic for accessing history records across
+   * different collections (e.g., Dataset, Proposal, Sample). It follows a hierarchical
+   * permission structure where:
+   *
+   * 1. Unauthenticated users have no access to any history
+   * 2. Administrators have unrestricted access to all history records
+   * 3. Regular users have access only to history for collections relevant to their role
+   *
+   * The third parameter in the permission definitions is particularly important:
+   * - For admin users: "ALL" indicates access to all collections
+   * - For specialized users: Collection name (e.g., "Dataset", "Proposal", "Sample")
+   *   restricts access to only that specific collection
+   *
+   * When a history request is made, the controller should verify the user has
+   * permission to access the requested collection by checking:
+   * `ability.can(Action.HistoryRead, "GenericHistory", collectionName)`
+   *
+   * @param user - The authenticated user object from the JWT token
+   * @returns An AppAbility object that can be used to check history access permissions
+   *
+   * @example
+   * // In a controller:
+   * const ability = this.caslFactory.historyEndpointAccess(request.user);
+   * if (!ability.can(Action.HistoryRead, "GenericHistory", "Dataset")) {
+   *   throw new ForbiddenException("No access to Dataset history");
+   * }
+   *
+   * @security This method is critical for enforcing access control to potentially
+   * sensitive history data. Any changes should be carefully tested to ensure proper
+   * access restrictions are maintained.
+   */
+  historyEndpointAccess(user: JWTUser) {
+    const { can, build } = new AbilityBuilder(
+      createMongoAbility<PossibleAbilities, Conditions>,
+    );
+
+    if (user) {
+      // -------------------------------------
+      // Authenticated users
+      // -------------------------------------
+      if (user.currentGroups && Array.isArray(user.currentGroups)) {
+        // Admin users get full endpoint access
+        if (
+          user.currentGroups.some(
+            (g) =>
+              this.accessGroups?.admin && this.accessGroups.admin.includes(g),
+          )
+        ) {
+          can(Action.HistoryReadEndpoint, "GenericHistory");
+        }
+
+        // Users with access to any specific history type get endpoint access
+        if (
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historyDataset.includes(g),
+          ) ||
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historyProposal.includes(g),
+          ) ||
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historySample.includes(g),
+          ) ||
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historyInstrument.includes(g),
+          ) ||
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historyPublishedData.includes(g),
+          ) ||
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historyPolicies.includes(g),
+          ) ||
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historyDatablocks.includes(g),
+          ) ||
+          user.currentGroups.some((g) =>
+            this.accessGroups?.historyAttachments.includes(g),
+          )
+        ) {
+          can(Action.HistoryReadEndpoint, "GenericHistory");
+        }
+      }
+    }
+
+    return build({
+      detectSubjectType: (item) =>
+        item.constructor as ExtractSubjectType<Subjects>,
+    });
+  }
+
+  /**
+   * Controls access to specific history instances
+   * This checks if a user can access history for specific entity instances
+   *
+   * @param user - The authenticated user object from the JWT token
+   * @returns An AppAbility object that can be used to check history access permissions
+   *
+   * @example
+   * // In a controller:
+   * const ability = this.caslFactory.historyInstanceAccess(request.user);
+   * if (!ability.can(Action.HistoryRead, "GenericHistory", instanceId)) {
+   *   throw new ForbiddenException("No access to instance history");
+   * }
+   *
+   * @security This method is critical for enforcing access control to potentially
+   * sensitive history data. Any changes should be carefully tested to ensure proper
+   * access restrictions are maintained.
+   */
+  historyInstanceAccess(user: JWTUser) {
+    const { can, build } = new AbilityBuilder(
+      createMongoAbility<PossibleAbilities, Conditions>,
+    );
+
+    if (user) {
+      // -------------------------------------
+      // Authenticated users
+      // -------------------------------------
+      if (user && user.currentGroups && Array.isArray(user.currentGroups)) {
+        // -----------------------------------
+        // Valid user groups
+        // -----------------------------------
+        if (
+          // ---------------------------------
+          // Grant full access to admin users
+          // ---------------------------------
+          user.currentGroups.some(
+            (g) =>
+              this.accessGroups?.admin && this.accessGroups.admin.includes(g),
+          )
+        ) {
+          can(Action.HistoryReadDataset, "GenericHistory");
+          can(Action.HistoryReadProposal, "GenericHistory");
+          can(Action.HistoryReadSample, "GenericHistory");
+          can(Action.HistoryReadInstrument, "GenericHistory");
+          can(Action.HistoryReadPublishedData, "GenericHistory");
+          can(Action.HistoryReadPolicy, "GenericHistory");
+          can(Action.HistoryReadDatablock, "GenericHistory");
+          can(Action.HistoryReadAttachment, "GenericHistory");
+        } else {
+          // ---------------------------------
+          // Grant access based on user groups
+          // ---------------------------------
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historyDataset.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadDataset, "GenericHistory");
+          }
+
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historyProposal.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadProposal, "GenericHistory");
+          }
+
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historySample.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadSample, "GenericHistory");
+          }
+
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historyInstrument.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadInstrument, "GenericHistory");
+          }
+
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historyPublishedData.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadPublishedData, "GenericHistory");
+          }
+
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historyPolicies.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadPolicy, "GenericHistory");
+          }
+
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historyDatablocks.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadDatablock, "GenericHistory");
+          }
+
+          if (
+            user.currentGroups.some((g) =>
+              this.accessGroups?.historyAttachments.includes(g),
+            )
+          ) {
+            can(Action.HistoryReadAttachment, "GenericHistory");
+          }
+        }
       }
     }
 
@@ -556,20 +791,27 @@ export class CaslAbilityFactory {
       /**
       /*  unauthenticated users
       **/
-      can(Action.OrigdatablockRead, OrigDatablock);
+
+      can(Action.OrigdatablockReadManyPublic, OrigDatablock);
+      can(Action.OrigdatablockReadOnePublic, OrigDatablock, {
+        isPublished: true,
+      });
+      cannot(Action.OrigdatablockCreate, OrigDatablock);
+      cannot(Action.OrigdatablockRead, OrigDatablock);
+      cannot(Action.OrigdatablockUpdate, OrigDatablock);
     } else {
       if (
         user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
       ) {
-        /*
-      / user that belongs to any of the group listed in DELETE_GROUPS
-      */
+        /**
+        /*  user that belongs to any of the groups listed in DELETE_GROUPS
+        **/
 
         can(Action.OrigdatablockDelete, OrigDatablock);
       } else {
-        /*
-      /  user that does not belong to any of the group listed in DELETE_GROUPS
-      */
+        /**
+        /*  user that does not belong to any of the groups listed in DELETE_GROUPS
+        **/
 
         cannot(Action.OrigdatablockDelete, OrigDatablock);
       }
@@ -577,12 +819,12 @@ export class CaslAbilityFactory {
       if (
         user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
       ) {
-        /*
-      / user that belongs to any of the group listed in ADMIN_GROUPS
-      */
+        /**
+        /*  user that belongs to any of the group listed in ADMIN_GROUPS
+        **/
 
-        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockCreate, OrigDatablock);
+        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockUpdate, OrigDatablock);
       } else if (
         user.currentGroups.some((g) =>
@@ -590,11 +832,11 @@ export class CaslAbilityFactory {
         )
       ) {
         /**
-      /*  users belonging to CREATE_DATASET_PRIVILEGED_GROUPS
-      **/
+        /*  users belonging to CREATE_DATASET_PRIVILEGED_GROUPS
+        **/
 
-        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockCreate, OrigDatablock);
+        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockUpdate, OrigDatablock);
       } else if (
         user.currentGroups.some((g) =>
@@ -603,11 +845,11 @@ export class CaslAbilityFactory {
         this.accessGroups?.createDatasetWithPid.includes("#all")
       ) {
         /**
-      /*  users belonging to CREATE_DATASET_WITH_PID_GROUPS
-      **/
+        /*  users belonging to CREATE_DATASET_WITH_PID_GROUPS
+        **/
 
-        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockCreate, OrigDatablock);
+        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockUpdate, OrigDatablock);
       } else if (
         user.currentGroups.some((g) =>
@@ -616,22 +858,51 @@ export class CaslAbilityFactory {
         this.accessGroups?.createDataset.includes("#all")
       ) {
         /**
-      /*  users belonging to CREATE_DATASET_GROUPS
-      **/
+        /*  users belonging to CREATE_DATASET_GROUPS
+        **/
 
-        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockCreate, OrigDatablock);
+        can(Action.OrigdatablockRead, OrigDatablock);
         can(Action.OrigdatablockUpdate, OrigDatablock);
       } else if (user) {
         /**
-      /*  authenticated users
-      **/
+        /*  authenticated users
+        **/
 
-        can(Action.OrigdatablockRead, OrigDatablock);
         cannot(Action.OrigdatablockCreate, OrigDatablock);
+        can(Action.OrigdatablockRead, OrigDatablock);
         cannot(Action.OrigdatablockUpdate, OrigDatablock);
       }
     }
+    return build({
+      detectSubjectType: (item) =>
+        item.constructor as ExtractSubjectType<Subjects>,
+    });
+  }
+
+  datablockEndpointAccess(user: JWTUser) {
+    const { can, cannot, build } = new AbilityBuilder(
+      createMongoAbility<PossibleAbilities, Conditions>,
+    );
+    if (user) {
+      can(Action.DatablockCreateEndpoint, Datablock);
+      can(Action.DatablockReadEndpoint, Datablock);
+      can(Action.DatablockUpdateEndpoint, Datablock);
+
+      if (
+        user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
+      ) {
+        can(Action.DatablockDeleteEndpoint, Datablock);
+      } else {
+        cannot(Action.DatablockDeleteEndpoint, Datablock);
+      }
+    } else {
+      cannot(Action.DatablockCreateEndpoint, Datablock);
+      cannot(Action.DatablockReadEndpoint, Datablock);
+      cannot(Action.DatablockUpdateEndpoint, Datablock);
+      cannot(Action.DatablockDeleteEndpoint, Datablock);
+    }
+
     return build({
       detectSubjectType: (item) =>
         item.constructor as ExtractSubjectType<Subjects>,
@@ -652,7 +923,8 @@ export class CaslAbilityFactory {
       can(Action.Delete, Policy);
     } else if (
       user &&
-      user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
+      (user.currentGroups.some((g) => this.accessGroups?.admin.includes(g)) ||
+        user.currentGroups.some((g) => this.accessGroups?.policy.includes(g)))
     ) {
       /*
         / user that belongs to any of the group listed in ADMIN_GROUPS
@@ -685,61 +957,68 @@ export class CaslAbilityFactory {
       cannot(Action.ProposalsAttachmentCreate, ProposalClass);
       cannot(Action.ProposalsAttachmentUpdate, ProposalClass);
       cannot(Action.ProposalsAttachmentDelete, ProposalClass);
-    } else if (
-      user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
-    ) {
-      /*
+    } else {
+      if (
+        user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
+      ) {
+        /**
+         * authenticated users belonging to any of the group listed in ADMIN_GROUPS
+         */
+
+        can(Action.ProposalsRead, ProposalClass);
+        can(Action.ProposalsCreate, ProposalClass);
+        can(Action.ProposalsUpdate, ProposalClass);
+        can(Action.ProposalsAttachmentRead, ProposalClass);
+        can(Action.ProposalsAttachmentCreate, ProposalClass);
+        can(Action.ProposalsAttachmentUpdate, ProposalClass);
+        can(Action.ProposalsAttachmentDelete, ProposalClass);
+      } else if (
+        user.currentGroups.some((g) => {
+          return this.accessGroups?.proposal.includes(g);
+        })
+      ) {
+        /**
+         * authenticated users belonging to any of the group listed in PROPOSAL_GROUPS
+         */
+
+        can(Action.ProposalsRead, ProposalClass);
+        can(Action.ProposalsCreate, ProposalClass);
+        can(Action.ProposalsUpdate, ProposalClass);
+        can(Action.ProposalsAttachmentRead, ProposalClass);
+        can(Action.ProposalsAttachmentCreate, ProposalClass);
+        can(Action.ProposalsAttachmentUpdate, ProposalClass);
+        can(Action.ProposalsAttachmentDelete, ProposalClass);
+        cannot(Action.ProposalsDatasetRead, ProposalClass);
+      } else if (user) {
+        /**
+         * authenticated users
+         */
+
+        can(Action.ProposalsRead, ProposalClass);
+        cannot(Action.ProposalsCreate, ProposalClass);
+        cannot(Action.ProposalsUpdate, ProposalClass);
+        can(Action.ProposalsAttachmentRead, ProposalClass);
+        cannot(Action.ProposalsAttachmentCreate, ProposalClass);
+        cannot(Action.ProposalsAttachmentUpdate, ProposalClass);
+        cannot(Action.ProposalsAttachmentDelete, ProposalClass);
+        can(Action.ProposalsDatasetRead, ProposalClass);
+      }
+
+      if (
+        user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
+      ) {
+        /*
         / user that belongs to any of the group listed in DELETE_GROUPS
         */
 
-      can(Action.ProposalsDelete, ProposalClass);
-    } else if (
-      user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
-    ) {
-      /**
-       * authenticated users belonging to any of the group listed in ADMIN_GROUPS
-       */
+        can(Action.ProposalsDelete, ProposalClass);
+      } else {
+        /*
+        /  user that does not belong to any of the group listed in DELETE_GROUPS
+        */
 
-      can(Action.ProposalsRead, ProposalClass);
-      can(Action.ProposalsCreate, ProposalClass);
-      can(Action.ProposalsUpdate, ProposalClass);
-      cannot(Action.ProposalsDelete, ProposalClass);
-      can(Action.ProposalsAttachmentRead, ProposalClass);
-      can(Action.ProposalsAttachmentCreate, ProposalClass);
-      can(Action.ProposalsAttachmentUpdate, ProposalClass);
-      can(Action.ProposalsAttachmentDelete, ProposalClass);
-    } else if (
-      user.currentGroups.some((g) => {
-        return this.accessGroups?.proposal.includes(g);
-      })
-    ) {
-      /**
-       * authenticated users belonging to any of the group listed in PROPOSAL_GROUPS
-       */
-
-      can(Action.ProposalsRead, ProposalClass);
-      can(Action.ProposalsCreate, ProposalClass);
-      can(Action.ProposalsUpdate, ProposalClass);
-      cannot(Action.ProposalsDelete, ProposalClass);
-      can(Action.ProposalsAttachmentRead, ProposalClass);
-      can(Action.ProposalsAttachmentCreate, ProposalClass);
-      can(Action.ProposalsAttachmentUpdate, ProposalClass);
-      can(Action.ProposalsAttachmentDelete, ProposalClass);
-      cannot(Action.ProposalsDatasetRead, ProposalClass);
-    } else if (user) {
-      /**
-       * authenticated users
-       */
-
-      can(Action.ProposalsRead, ProposalClass);
-      cannot(Action.ProposalsCreate, ProposalClass);
-      cannot(Action.ProposalsUpdate, ProposalClass);
-      cannot(Action.ProposalsDelete, ProposalClass);
-      can(Action.ProposalsAttachmentRead, ProposalClass);
-      cannot(Action.ProposalsAttachmentCreate, ProposalClass);
-      cannot(Action.ProposalsAttachmentUpdate, ProposalClass);
-      cannot(Action.ProposalsAttachmentDelete, ProposalClass);
-      can(Action.ProposalsDatasetRead, ProposalClass);
+        cannot(Action.ProposalsDelete, ProposalClass);
+      }
     }
     return build({
       detectSubjectType: (item) =>
@@ -985,7 +1264,17 @@ export class CaslAbilityFactory {
         // -
         can(Action.DatasetDatablockDeleteAny, DatasetClass);
       }
-
+      if (
+        user.currentGroups.some((g) =>
+          this.accessGroups?.updateDatasetLifecycle.includes(g),
+        )
+      ) {
+        /*
+        / user that belongs to any of the group listed in UPDATE_DATASET_LIFECYCLE_GROUPS
+        */
+        can(Action.DatasetReadAny, DatasetClass);
+        can(Action.DatasetLifecycleUpdateAny, DatasetClass);
+      }
       if (
         user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
       ) {
@@ -1324,21 +1613,21 @@ export class CaslAbilityFactory {
       if (
         user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
       ) {
-        /*
-      / user that belongs to any of the group listed in DELETE_GROUPS
-      */
+        /**
+        /* user that belongs to any of the group listed in DELETE_GROUPS
+        **/
 
         can(Action.OrigdatablockDeleteAny, OrigDatablock);
       }
       if (
         user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
       ) {
-        /*
-      / user that belongs to any of the group listed in ADMIN_GROUPS
-      */
+        /**
+        /* user that belongs to any of the group listed in ADMIN_GROUPS
+        **/
 
-        can(Action.OrigdatablockReadAny, OrigDatablock);
         can(Action.OrigdatablockCreateAny, OrigDatablock);
+        can(Action.OrigdatablockReadAny, OrigDatablock);
         can(Action.OrigdatablockUpdateAny, OrigDatablock);
       } else if (
         user.currentGroups.some((g) =>
@@ -1346,8 +1635,9 @@ export class CaslAbilityFactory {
         )
       ) {
         /**
-      /*  users belonging to CREATE_DATASET_PRIVILEGED_GROUPS
-      **/
+        /*  users belonging to CREATE_DATASET_PRIVILEGED_GROUPS
+        **/
+
         can(Action.OrigdatablockCreateAny, OrigDatablock);
         can(Action.OrigdatablockReadManyAccess, OrigDatablock);
         can(Action.OrigdatablockReadOneAccess, OrigDatablock, {
@@ -1357,7 +1647,7 @@ export class CaslAbilityFactory {
           accessGroups: { $in: user.currentGroups },
         });
         can(Action.OrigdatablockReadOneAccess, OrigDatablock, {
-          ownerGroup: { $in: user.currentGroups },
+          isPublished: true,
         });
         can(Action.OrigdatablockUpdateOwner, OrigDatablock, {
           ownerGroup: { $in: user.currentGroups },
@@ -1369,8 +1659,8 @@ export class CaslAbilityFactory {
         this.accessGroups?.createDatasetWithPid.includes("#all")
       ) {
         /**
-      /*  users belonging to CREATE_DATASET_WITH_PID_GROUPS
-      **/
+        /*  users belonging to CREATE_DATASET_WITH_PID_GROUPS
+        **/
 
         can(Action.OrigdatablockCreateOwner, OrigDatablock, {
           ownerGroup: { $in: user.currentGroups },
@@ -1395,8 +1685,8 @@ export class CaslAbilityFactory {
         this.accessGroups?.createDataset.includes("#all")
       ) {
         /**
-      /*  users belonging to CREATE_DATASET_GROUPS
-      **/
+        /*  users belonging to CREATE_DATASET_GROUPS
+        **/
 
         can(Action.OrigdatablockCreateOwner, OrigDatablock, {
           ownerGroup: { $in: user.currentGroups },
@@ -1416,8 +1706,8 @@ export class CaslAbilityFactory {
         });
       } else if (user) {
         /**
-      /*  authenticated users
-      **/
+        /*  authenticated users
+        **/
 
         can(Action.OrigdatablockReadManyAccess, OrigDatablock);
         can(Action.OrigdatablockReadOneAccess, OrigDatablock, {
@@ -1575,91 +1865,90 @@ export class CaslAbilityFactory {
       can(Action.ProposalsAttachmentReadPublic, ProposalClass, {
         isPublished: true,
       });
-    } else if (
-      user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
-    ) {
-      /*
+    } else {
+      if (
+        user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
+      ) {
+        /**
+         * authenticated users belonging to any of the group listed in ADMIN_GROUPS
+         */
+
+        can(Action.ProposalsReadAny, ProposalClass);
+        can(Action.ProposalsCreateAny, ProposalClass);
+        can(Action.ProposalsUpdateAny, ProposalClass);
+        can(Action.ProposalsAttachmentReadAny, ProposalClass);
+        can(Action.ProposalsAttachmentCreateAny, ProposalClass);
+        can(Action.ProposalsAttachmentUpdateAny, ProposalClass);
+        can(Action.ProposalsAttachmentDeleteAny, ProposalClass);
+      } else if (
+        user.currentGroups.some((g) => {
+          return this.accessGroups?.proposal.includes(g);
+        })
+      ) {
+        /**
+         * authenticated users belonging to any of the group listed in PROPOSAL_GROUPS
+         */
+
+        can(Action.ProposalsCreateAny, ProposalClass);
+        can(Action.ProposalsUpdateAny, ProposalClass);
+        can(Action.ProposalsReadAny, ProposalClass);
+        //-
+        can(Action.ProposalsAttachmentCreateAny, ProposalClass);
+        can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
+          ownerGroup: { $in: user.currentGroups },
+        });
+        can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
+          accessGroups: { $in: user.currentGroups },
+        });
+        can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
+          isPublished: true,
+        });
+        can(Action.ProposalsAttachmentUpdateOwner, ProposalClass, {
+          ownerGroup: { $in: user.currentGroups },
+        });
+        can(Action.ProposalsAttachmentDeleteOwner, ProposalClass, {
+          ownerGroup: { $in: user.currentGroups },
+        });
+      } else if (user) {
+        /**
+         * authenticated users
+         */
+
+        can(Action.ProposalsReadManyAccess, ProposalClass);
+        can(Action.ProposalsReadOneAccess, ProposalClass, {
+          ownerGroup: { $in: user.currentGroups },
+        });
+        can(Action.ProposalsReadOneAccess, ProposalClass, {
+          accessGroups: { $in: user.currentGroups },
+        });
+        can(Action.ProposalsReadOneAccess, ProposalClass, {
+          isPublished: true,
+        });
+        // -
+        can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
+          ownerGroup: { $in: user.currentGroups },
+        });
+        can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
+          accessGroups: { $in: user.currentGroups },
+        });
+        can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
+          isPublished: true,
+        });
+      }
+
+      if (
+        user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
+      ) {
+        /*
         / user that belongs to any of the group listed in DELETE_GROUPS
         */
-      can(Action.ProposalsDeleteAny, ProposalClass);
-    } else if (
-      user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
-    ) {
-      /**
-       * authenticated users belonging to any of the group listed in ADMIN_GROUPS
-       */
-
-      can(Action.ProposalsReadAny, ProposalClass);
-      can(Action.ProposalsCreateAny, ProposalClass);
-      can(Action.ProposalsUpdateAny, ProposalClass);
-      cannot(Action.ProposalsDeleteAny, ProposalClass);
-      can(Action.ProposalsAttachmentReadAny, ProposalClass);
-      can(Action.ProposalsAttachmentCreateAny, ProposalClass);
-      can(Action.ProposalsAttachmentUpdateAny, ProposalClass);
-      can(Action.ProposalsAttachmentDeleteAny, ProposalClass);
-    } else if (
-      user.currentGroups.some((g) => {
-        return this.accessGroups?.proposal.includes(g);
-      })
-    ) {
-      /**
-       * authenticated users belonging to any of the group listed in PROPOSAL_GROUPS
-       */
-
-      can(Action.ProposalsCreateAny, ProposalClass);
-      can(Action.ProposalsUpdateAny, ProposalClass);
-      can(Action.ProposalsReadManyAccess, ProposalClass);
-      can(Action.ProposalsReadOneAccess, ProposalClass, {
-        ownerGroup: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsReadOneAccess, ProposalClass, {
-        accessGroups: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsReadOneAccess, ProposalClass, {
-        isPublished: true,
-      });
-      //-
-      can(Action.ProposalsAttachmentCreateAny, ProposalClass);
-      can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
-        ownerGroup: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
-        accessGroups: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
-        isPublished: true,
-      });
-      can(Action.ProposalsAttachmentUpdateOwner, ProposalClass, {
-        ownerGroup: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsAttachmentDeleteOwner, ProposalClass, {
-        ownerGroup: { $in: user.currentGroups },
-      });
-    } else if (user) {
-      /**
-       * authenticated users
-       */
-
-      can(Action.ProposalsReadManyAccess, ProposalClass);
-      can(Action.ProposalsReadOneAccess, ProposalClass, {
-        ownerGroup: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsReadOneAccess, ProposalClass, {
-        accessGroups: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsReadOneAccess, ProposalClass, {
-        isPublished: true,
-      });
-      // -
-      can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
-        ownerGroup: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
-        accessGroups: { $in: user.currentGroups },
-      });
-      can(Action.ProposalsAttachmentReadAccess, ProposalClass, {
-        isPublished: true,
-      });
+        can(Action.ProposalsDeleteAny, ProposalClass);
+      } else {
+        /*
+        / user that does not belong to any of the group listed in DELETE_GROUPS
+        */
+        cannot(Action.ProposalsDeleteAny, ProposalClass);
+      }
     }
     return build({
       detectSubjectType: (item) =>
@@ -1934,6 +2223,84 @@ export class CaslAbilityFactory {
       }
     }
 
+    return build({
+      detectSubjectType: (item) =>
+        item.constructor as ExtractSubjectType<Subjects>,
+    });
+  }
+
+  publishedDataInstanceAccess(user: JWTUser) {
+    const { can, build } = new AbilityBuilder(
+      createMongoAbility<PossibleAbilities, Conditions>,
+    );
+
+    if (
+      user &&
+      user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
+    ) {
+      // -------------------------------------
+      // users belonging to any of the group listed in ADMIN_GROUPS
+      // -------------------------------------
+
+      can(Action.accessAny, PublishedData);
+    }
+
+    return build({
+      detectSubjectType: (item) =>
+        item.constructor as ExtractSubjectType<Subjects>,
+    });
+  }
+
+  datablockInstanceAccess(user: JWTUser) {
+    const { can, build } = new AbilityBuilder(
+      createMongoAbility<PossibleAbilities, Conditions>,
+    );
+    if (user) {
+      // Can read if user is in ownerGroup/accessGroup or if published
+      can(Action.DatablockReadInstance, Datablock, {
+        ownerGroup: { $in: user.currentGroups },
+      });
+      can(Action.DatablockReadInstance, Datablock, {
+        accessGroups: { $in: user.currentGroups },
+      });
+      can(Action.DatablockReadInstance, Datablock, { isPublished: true });
+
+      // Can update if in ownerGroup
+      can(Action.DatablockUpdateInstance, Datablock, {
+        accessGroups: { $in: user.currentGroups },
+      });
+
+      // Ingestor group is allowed to create/update
+      if (
+        user.currentGroups.some((g) =>
+          this.accessGroups?.createDataset.includes(g),
+        ) ||
+        user.currentGroups.some((g) =>
+          this.accessGroups?.createDatasetPrivileged.includes(g),
+        ) ||
+        user.currentGroups.some((g) =>
+          this.accessGroups?.createDatasetWithPid.includes(g),
+        )
+      ) {
+        can(Action.DatablockCreateInstance, Datablock);
+        can(Action.DatablockUpdateAny, Datablock);
+      }
+
+      if (
+        user.currentGroups.some((g) => this.accessGroups?.delete.includes(g))
+      ) {
+        can(Action.DatablockReadAny, Datablock);
+        can(Action.DatablockUpdateAny, Datablock);
+        can(Action.DatablockDeleteAny, Datablock);
+      }
+      if (
+        user.currentGroups.some((g) => this.accessGroups?.admin.includes(g))
+      ) {
+        can(Action.DatablockCreateInstance, Datablock);
+        can(Action.DatablockReadAny, Datablock);
+        can(Action.DatablockUpdateAny, Datablock);
+      }
+    }
     return build({
       detectSubjectType: (item) =>
         item.constructor as ExtractSubjectType<Subjects>,

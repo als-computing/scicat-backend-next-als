@@ -20,6 +20,7 @@ export enum Action {
   DatasetRead = "dataset_read",
   DatasetUpdate = "dataset_update",
   DatasetDelete = "dataset_delete",
+  DatasetLifecycleUpdate = "dataset_lifecycle_update",
   DatasetAttachmentCreate = "dataset_attachment_create",
   DatasetAttachmentRead = "dataset_attachment_read",
   DatasetAttachmentUpdate = "dataset_attachment_update",
@@ -48,6 +49,7 @@ export enum Action {
   DatasetUpdateAny = "dataset_update_any",
   DatasetDeleteOwner = "dataset_delete_owner",
   DatasetDeleteAny = "dataset_delete_any",
+  DatasetLifecycleUpdateAny = "dataset_lifecycle_update_any",
   DatasetAttachmentCreateOwner = "dataset_attachment_create_owner",
   DatasetAttachmentCreateAny = "dataset_attachment_create_any",
   DatasetAttachmentReadPublic = "dataset_attachment_read_public",
@@ -102,6 +104,22 @@ export enum Action {
   OrigdatablockUpdateAny = "origdatablock_update_any",
   OrigdatablockDeleteOwner = "origdatablock_delete_owner",
   OrigdatablockDeleteAny = "origdatablock_delete_any",
+
+  // -------------
+  // Datablock
+  // endpoint authorization actions
+  DatablockCreateEndpoint = "datablock_create_endpoint",
+  DatablockReadEndpoint = "datablock_read_endpoint",
+  DatablockUpdateEndpoint = "datablock_update_endpoint",
+  DatablockDeleteEndpoint = "datablock_delete_endpoint",
+  // individual actions
+  DatablockCreateInstance = "datablock_create_instance",
+  DatablockReadInstance = "datablock_read_instance",
+  DatablockUpdateInstance = "datablock_update_instance",
+  // admin actions
+  DatablockReadAny = "datablock_read_any",
+  DatablockUpdateAny = "datablock_update_any",
+  DatablockDeleteAny = "datablock_delete_any",
 
   // Proposals
   // endpoint authorization actions
@@ -230,4 +248,20 @@ export enum Action {
   AttachmentReadInstance = "attachment_read_instance",
   AttachmentUpdateInstance = "attachment_update_instance",
   AttachmentDeleteInstance = "attachment_delete_instance",
+
+  // -------------------------------------
+  // History
+  // -------------------------------------
+  // endpoint authorization
+  HistoryReadEndpoint = "history_read_endpoint", // General history endpoint access
+
+  // instance authorization by collection
+  HistoryReadDataset = "history_read_dataset",
+  HistoryReadProposal = "history_read_proposal",
+  HistoryReadSample = "history_read_sample",
+  HistoryReadInstrument = "history_read_instrument",
+  HistoryReadPublishedData = "history_read_published_data",
+  HistoryReadPolicy = "history_read_policy",
+  HistoryReadDatablock = "history_read_datablock",
+  HistoryReadAttachment = "history_read_attachment",
 }

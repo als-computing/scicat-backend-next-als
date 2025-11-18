@@ -10,12 +10,13 @@ import {
   IsBoolean,
   IsDateString,
   IsEmail,
-  IsFQDN,
   IsInt,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  IsUrl,
+  Validate,
   ValidateNested,
 } from "class-validator";
 import { TechniqueClass } from "../schemas/technique.schema";
@@ -25,6 +26,7 @@ import { RelationshipClass } from "../schemas/relationship.schema";
 import { CreateRelationshipDto } from "./create-relationship.dto";
 import { LifecycleClass } from "../schemas/lifecycle.schema";
 import { HistoryClass } from "../schemas/history.schema";
+import { CustomEmailList } from "../utils/email-list-validator.util";
 
 @ApiTags("datasets")
 export class UpdateDatasetDto extends OwnableDto {
@@ -64,7 +66,7 @@ export class UpdateDatasetDto extends OwnableDto {
     description:
       "Email of the contact person for this dataset. The string may contain a list of emails, which should then be separated by semicolons.",
   })
-  @IsEmail()
+  @Validate(CustomEmailList)
   readonly contactEmail: string;
 
   @ApiProperty({
@@ -83,7 +85,10 @@ export class UpdateDatasetDto extends OwnableDto {
       "DNS host name of file server hosting sourceFolder, optionally including a protocol e.g. [protocol://]fileserver1.example.com",
   })
   @IsOptional()
-  @IsFQDN()
+  @IsUrl({
+    require_valid_protocol: false,
+    require_protocol: false,
+  })
   readonly sourceFolderHost?: string;
 
   /*
@@ -276,6 +281,15 @@ export class UpdateDatasetDto extends OwnableDto {
   @ApiProperty({
     type: String,
     required: false,
+    description: "Link to schema for scientific metadata validation.",
+  })
+  @IsOptional()
+  @IsString()
+  readonly scientificMetadataSchema?: string;
+
+  @ApiProperty({
+    type: String,
+    required: false,
     description: "Comment the user has about a given dataset.",
   })
   @IsOptional()
@@ -457,4 +471,159 @@ export class UpdateDatasetWithHistoryDto extends UpdateDatasetDto {
 
 export class PartialUpdateDatasetWithHistoryDto extends PartialType(
   UpdateDatasetWithHistoryDto,
+) {}
+
+export class UpdateDatasetLifecycleDto {
+  @ApiProperty({
+    type: Boolean,
+    required: false,
+    description:
+      "Flag indicating if dataset is available to be archived and no archive job for this dataset exists yet.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  readonly archivable?: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    required: false,
+    description:
+      "Flag indicating if dataset is stored on archive system and is ready to be retrieved.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  readonly retrievable?: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    required: false,
+    description:
+      "Flag indicating if dataset can be published. Usually requires a longterm storage option on tape or similar.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  readonly publishable?: boolean;
+
+  @ApiProperty({
+    type: Date,
+    required: false,
+    description:
+      "Day when dataset will be removed from disk, assuming that is already stored on tape.",
+  })
+  @IsOptional()
+  @IsDateString()
+  readonly dateOfDiskPurging?: Date;
+
+  @ApiProperty({
+    type: Date,
+    required: false,
+    description:
+      "Day when the dataset's future fate will be evaluated again, e.g. to decide if the dataset can be deleted from archive.",
+  })
+  @IsOptional()
+  @IsDateString()
+  readonly archiveRetentionTime?: Date;
+
+  @ApiProperty({
+    type: Date,
+    required: false,
+    description:
+      "Day when dataset is supposed to become public according to data policy.",
+  })
+  @IsOptional()
+  @IsDateString()
+  readonly dateOfPublishing?: Date;
+
+  @ApiProperty({
+    type: Date,
+    required: false,
+    description: "Day when dataset was published.",
+  })
+  @IsOptional()
+  @IsDateString()
+  readonly publishedOn?: Date;
+
+  @ApiProperty({
+    type: Boolean,
+    required: false,
+    description:
+      "Flag indicating if full dataset is available on central fileserver. If false, data needs to be copied from decentral storage places to a cache server before the ingest. This information needs to be transferred to the archive system at archive time.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  readonly isOnCentralDisk?: boolean;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    default: "",
+    description:
+      "Short string defining the current status of the dataset with respect to storage on disk/tape.",
+  })
+  @IsOptional()
+  @IsString()
+  readonly archiveStatusMessage?: string;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    default: "",
+    description:
+      "Latest message for this dataset concerning retrieval from archive system.",
+  })
+  @IsOptional()
+  @IsString()
+  readonly retrieveStatusMessage?: string;
+
+  @ApiProperty({
+    type: Object,
+    required: false,
+    default: {},
+    description:
+      "Detailed status or error message returned by the archive system when archiving this dataset.",
+  })
+  @IsOptional()
+  readonly archiveReturnMessage?: unknown;
+
+  @ApiProperty({
+    type: Object,
+    required: false,
+    default: {},
+    description:
+      "Detailed status or error message returned by the archive system when retrieving this dataset.",
+  })
+  @IsOptional()
+  readonly retrieveReturnMessage?: unknown;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: "Location of the last export destination.",
+  })
+  @IsOptional()
+  readonly exportedTo?: string;
+
+  @ApiProperty({
+    type: Boolean,
+    required: false,
+    default: false,
+    description:
+      "Set to true when checksum tests after retrieve of datasets were successful.",
+  })
+  @IsOptional()
+  @IsBoolean()
+  readonly retrieveIntegrityCheck?: boolean;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description:
+      "Location of the data on the archive system. Allowed values are facility-specific and may be validated when submitting scicat jobs relating to this dataset. Facilities with a single storage location can leave this field empty.",
+  })
+  @IsOptional()
+  storageLocation?: string;
+}
+
+export class PartialUpdateDatasetLifecycleDto extends PartialType(
+  UpdateDatasetLifecycleDto,
 ) {}

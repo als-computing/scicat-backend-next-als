@@ -6,11 +6,17 @@ export type searchType =
   | "date"
   | "boolean"
   | "object"
+  | "flattened"
   | "nested";
 
 export type ObjectType = {
   begin: string;
   end: string;
+};
+
+export type NumberRangeType = {
+  min: string;
+  max: string;
 };
 
 export interface IShould {

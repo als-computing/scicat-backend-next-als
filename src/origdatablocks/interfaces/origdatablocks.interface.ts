@@ -1,4 +1,8 @@
-import { IDatafileFilter } from "src/common/interfaces/common.interface";
+import {
+  IDatafileFilter,
+  IFiltersV4,
+} from "src/common/interfaces/common.interface";
+import { OrigDatablockLookupKeysEnum } from "../types/origdatablock-lookup";
 
 export interface IOrigDatablockFields {
   datasetId?: string;
@@ -12,3 +16,9 @@ export interface IOrigDatablockFields {
   accessGroups?: string[];
   isPublished?: boolean;
 }
+
+export type IOrigDatablockFiltersV4<T, Y = null> = IFiltersV4<
+  T,
+  Y,
+  OrigDatablockLookupKeysEnum[]
+>;

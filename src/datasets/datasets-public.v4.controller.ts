@@ -24,14 +24,24 @@ import {
   FullFacetFilters,
   FullFacetResponse,
 } from "src/common/types";
-import { DatasetLookupKeysEnum } from "./types/dataset-lookup";
-import { IncludeValidationPipe } from "./pipes/include-validation.pipe";
-import { FilterValidationPipe } from "./pipes/filter-validation.pipe";
+import {
+  DatasetLookupKeysEnum,
+  DATASET_LOOKUP_FIELDS,
+  ALLOWED_DATASET_KEYS,
+  ALLOWED_DATASET_FILTER_KEYS,
+} from "./types/dataset-lookup";
+import { IncludeValidationPipe } from "src/common/pipes/include-validation.pipe";
+import { FilterValidationPipe } from "src/common/pipes/filter-validation.pipe";
 import { getSwaggerDatasetFilterContent } from "./types/dataset-filter-content";
 import { AllowAny } from "src/auth/decorators/allow-any.decorator";
 
 @ApiExtraModels(HistoryClass, TechniqueClass, RelationshipClass)
 @ApiTags("datasets public v4")
+/* NOTE: Generated SDK method names include "V4" twice:
+ *  - From the controller class name (DatasetsPublicV4Controller)
+ *  - From the route version (`version: '4'`)
+ * This is intentional for versioned routing.
+ */
 @Controller({ path: "datasets/public", version: "4" })
 export class DatasetsPublicV4Controller {
   constructor(private datasetsService: DatasetsService) {}
@@ -67,7 +77,14 @@ export class DatasetsPublicV4Controller {
     description: "Return the datasets requested",
   })
   async findAllPublic(
-    @Query("filter", new FilterValidationPipe(), new IncludeValidationPipe())
+    @Query(
+      "filter",
+      new FilterValidationPipe(
+        ALLOWED_DATASET_KEYS,
+        ALLOWED_DATASET_FILTER_KEYS,
+      ),
+      new IncludeValidationPipe(DATASET_LOOKUP_FIELDS),
+    )
     queryFilter: string,
   ) {
     const parsedFilter = JSON.parse(queryFilter ?? "{}");
@@ -184,7 +201,14 @@ export class DatasetsPublicV4Controller {
     description: "Return the datasets requested",
   })
   async findOnePublic(
-    @Query("filter", new FilterValidationPipe(), new IncludeValidationPipe())
+    @Query(
+      "filter",
+      new FilterValidationPipe(
+        ALLOWED_DATASET_KEYS,
+        ALLOWED_DATASET_FILTER_KEYS,
+      ),
+      new IncludeValidationPipe(DATASET_LOOKUP_FIELDS),
+    )
     queryFilter: string,
   ): Promise<OutputDatasetDto | null> {
     const parsedFilter = JSON.parse(queryFilter ?? "{}");
@@ -224,12 +248,16 @@ export class DatasetsPublicV4Controller {
   async countPublic(
     @Query(
       "filter",
-      new FilterValidationPipe({
-        where: true,
-        include: false,
-        fields: false,
-        limits: false,
-      }),
+      new FilterValidationPipe(
+        ALLOWED_DATASET_KEYS,
+        ALLOWED_DATASET_FILTER_KEYS,
+        {
+          where: true,
+          include: false,
+          fields: false,
+          limits: false,
+        },
+      ),
     )
     queryFilter?: string,
   ) {
@@ -263,7 +291,7 @@ export class DatasetsPublicV4Controller {
   })
   async findByIdPublic(
     @Param("pid") id: string,
-    @Query("include", new IncludeValidationPipe())
+    @Query("include", new IncludeValidationPipe(DATASET_LOOKUP_FIELDS))
     include: DatasetLookupKeysEnum[] | DatasetLookupKeysEnum,
   ) {
     const includeArray = Array.isArray(include)

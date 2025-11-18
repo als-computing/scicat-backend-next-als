@@ -3,7 +3,6 @@ import { ApiProperty, getSchemaPath } from "@nestjs/swagger";
 import { Document } from "mongoose";
 import { OwnableClass } from "src/common/schemas/ownable.schema";
 import { v4 as uuidv4 } from "uuid";
-import { HistoryClass, HistorySchema } from "./history.schema";
 import { LifecycleClass, LifecycleSchema } from "./lifecycle.schema";
 import { RelationshipClass, RelationshipSchema } from "./relationship.schema";
 import { TechniqueClass, TechniqueSchema } from "./technique.schema";
@@ -266,16 +265,6 @@ export class DatasetClass extends OwnableClass {
   version: string;
 
   @ApiProperty({
-    type: "array",
-    items: { $ref: getSchemaPath(HistoryClass) },
-    required: false,
-    default: [],
-    description: "List of objects containing old and new values.",
-  })
-  @Prop({ type: [HistorySchema], required: false, default: [] })
-  history?: HistoryClass[];
-
-  @ApiProperty({
     type: LifecycleClass,
     required: true,
     default: {},
@@ -329,6 +318,23 @@ export class DatasetClass extends OwnableClass {
   })
   @Prop({ type: Object, required: false, default: {} })
   scientificMetadata?: Record<string, unknown>;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    description: "Link to schema for scientific metadata validation.",
+  })
+  @Prop({ type: String, required: false })
+  readonly scientificMetadataSchema?: string;
+
+  @ApiProperty({
+    type: Boolean,
+    required: false,
+    description:
+      "Whether the scientificMetadata complies with the scientificMetadataSchema.",
+  })
+  @Prop({ type: Boolean, required: false })
+  readonly scientificMetadataValid?: boolean;
 
   @ApiProperty({
     type: String,

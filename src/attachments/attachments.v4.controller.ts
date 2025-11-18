@@ -41,7 +41,7 @@ import {
 
 import { OutputDatasetDto } from "src/datasets/dto/output-dataset.dto";
 import { getSwaggerAttachmentFilterContent } from "./types/attachment-filter-contents";
-import { AttachmentFilterValidationPipe } from "./pipes/attachment-filter-validation.pipe";
+import { FilterValidationPipe } from "src/common/pipes/filter-validation.pipe";
 import { CreateAttachmentV4Dto } from "./dto/create-attachment.v4.dto";
 import { OutputAttachmentV4Dto } from "./dto/output-attachment.v4.dto";
 import {
@@ -53,9 +53,18 @@ import { AllowAny } from "src/auth/decorators/allow-any.decorator";
 import { validate, ValidatorOptions } from "class-validator";
 import { plainToInstance } from "class-transformer";
 import { IsValidResponse } from "src/common/types";
+import {
+  ALLOWED_ATTACHMENT_KEYS,
+  ALLOWED_ATTACHMENT_FILTER_KEYS,
+} from "./types/attachment-lookup";
 
 @ApiBearerAuth()
 @ApiTags("attachments v4")
+/* NOTE: Generated SDK method names include "V4" twice:
+ *  - From the controller class name (AttachmentsV4Controller)
+ *  - From the route version (`version: '4'`)
+ * This is intentional for versioned routing.
+ */
 @Controller({ path: "attachments", version: "4" })
 export class AttachmentsV4Controller {
   constructor(
@@ -228,12 +237,16 @@ export class AttachmentsV4Controller {
     @Req() request: Request,
     @Query(
       "filter",
-      new AttachmentFilterValidationPipe({
-        where: true,
-        include: false,
-        fields: true,
-        limits: true,
-      }),
+      new FilterValidationPipe(
+        ALLOWED_ATTACHMENT_KEYS,
+        ALLOWED_ATTACHMENT_FILTER_KEYS,
+        {
+          where: true,
+          include: false,
+          fields: true,
+          limits: true,
+        },
+      ),
     )
     queryFilter: string,
   ): Promise<OutputAttachmentV4Dto[]> {
@@ -270,12 +283,16 @@ export class AttachmentsV4Controller {
   findAllPublic(
     @Query(
       "filter",
-      new AttachmentFilterValidationPipe({
-        where: true,
-        include: false,
-        fields: true,
-        limits: true,
-      }),
+      new FilterValidationPipe(
+        ALLOWED_ATTACHMENT_KEYS,
+        ALLOWED_ATTACHMENT_FILTER_KEYS,
+        {
+          where: true,
+          include: false,
+          fields: true,
+          limits: true,
+        },
+      ),
     )
     queryFilter: string,
   ): Promise<OutputAttachmentV4Dto[]> {
@@ -326,8 +343,13 @@ export class AttachmentsV4Controller {
   )
   @ApiOperation({
     summary: "It updates the attachment.",
-    description:
-      "It updates the attachment specified through the id specified. It updates only the specified fields. Set `content-type` to `application/merge-patch+json` if you would like to update nested objects. Warning! `application/merge-patch+json` doesn’t support updating a specific item in an array — the result will always replace the entire target if it’s not an object.",
+    description: `It updates the attachment through the aid specified. It updates only the specified fields.
+Set \`content-type\` header to \`application/merge-patch+json\` if you would like to update nested objects.
+
+- In \`application/json\`, setting a property to \`null\` means "do not change this value."
+- In \`application/merge-patch+json\`, setting a property to \`null\` means "reset this value to \`null\`" (or the default value, if one is defined).
+
+    **Warning:** \`application/merge-patch+json\` doesn't support updating a specific item in an array — the result will always replace the entire target if it's not an object.`,
   })
   @ApiParam({
     name: "aid",

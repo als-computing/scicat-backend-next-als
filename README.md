@@ -14,6 +14,14 @@ If you wish to contribute code back to the main SciCat project, merge your work 
 
 Avoid merging "ALS-Customizations" into master.
 
-### Differences between "ALS Customizations" and the official repo as of Apr 2025:
+### Differences between "ALS Customizations" and the official repo as of Nov 2025:
 
 * Customizations to the OIDC authentication strategy to fetch additional user info from the ALS User Service.
+
+## License
+
+This project is licensed under the GPL License - see the [LICENSE](LICENSE) file for details
+
+## Acknowledgments
+
+Scicat is developed at PSI, ESS and MAXIV with in-kind funding from ESS and from the European Union Framework Programme for Research and Innovation Horizon 2020, under grant agreement 676548, “BrightnESS”.

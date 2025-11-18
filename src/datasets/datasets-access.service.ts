@@ -10,7 +10,6 @@ import { ProposalClass } from "src/proposals/schemas/proposal.schema";
 import { Instrument } from "src/instruments/schemas/instrument.schema";
 import { OrigDatablock } from "src/origdatablocks/schemas/origdatablock.schema";
 import { SampleClass } from "src/samples/schemas/sample.schema";
-import { Datablock } from "src/datablocks/schemas/datablock.schema";
 import { DatasetClass } from "./schemas/dataset.schema";
 
 @Injectable({ scope: Scope.REQUEST })
@@ -66,19 +65,19 @@ export class DatasetsAccessService {
         const ability = this.caslAbilityFactory.datasetInstanceAccess(user);
         const canViewAny = ability.can(
           Action.DatasetDatablockReadAny,
-          Datablock,
+          DatasetClass,
         );
         const canViewAccess = ability.can(
           Action.DatasetDatablockReadAccess,
-          Datablock,
+          DatasetClass,
         );
         const canViewOwner = ability.can(
           Action.DatasetDatablockReadOwner,
-          Datablock,
+          DatasetClass,
         );
         const canViewPublic = ability.can(
           Action.DatasetDatablockReadPublic,
-          Datablock,
+          DatasetClass,
         );
 
         return { canViewAny, canViewOwner, canViewAccess, canViewPublic };
@@ -147,13 +146,12 @@ export class DatasetsAccessService {
       fieldValue.$lookup.as as DatasetLookupKeysEnum,
       currentUser,
     );
-
     if (access) {
       const { canViewAny, canViewAccess, canViewOwner } = access;
-
       if (!canViewAny) {
+        let pipeline: PipelineStage.Lookup["$lookup"]["pipeline"];
         if (canViewAccess) {
-          fieldValue.$lookup.pipeline = [
+          pipeline = [
             {
               $match: {
                 $or: [
@@ -166,7 +164,7 @@ export class DatasetsAccessService {
             },
           ];
         } else if (canViewOwner) {
-          fieldValue.$lookup.pipeline = [
+          pipeline = [
             {
               $match: {
                 ownerGroup: { $in: currentUser.currentGroups },
@@ -174,7 +172,7 @@ export class DatasetsAccessService {
             },
           ];
         } else {
-          fieldValue.$lookup.pipeline = [
+          pipeline = [
             {
               $match: {
                 isPublished: true,
@@ -182,6 +180,46 @@ export class DatasetsAccessService {
             },
           ];
         }
+        fieldValue.$lookup.pipeline = fieldValue.$lookup.pipeline ?? [];
+        fieldValue.$lookup.pipeline.push(...pipeline);
+      }
+    }
+  }
+
+  addDatasetAccess(fieldValue: PipelineStage.Lookup) {
+    const currentUser = this.request.user as JWTUser;
+    const ability = this.caslAbilityFactory.datasetInstanceAccess(currentUser);
+    const canViewAny = ability.can(Action.DatasetReadAny, DatasetClass);
+    const canViewAccess = ability.can(
+      Action.DatasetReadManyAccess,
+      DatasetClass,
+    );
+    const canViewOwner = ability.can(Action.DatasetReadManyOwner, DatasetClass);
+
+    if (!canViewAny) {
+      if (canViewAccess) {
+        fieldValue.$lookup.pipeline?.unshift({
+          $match: {
+            $or: [
+              { ownerGroup: { $in: currentUser.currentGroups } },
+              { accessGroups: { $in: currentUser.currentGroups } },
+              { sharedWith: { $in: [currentUser.email] } },
+              { isPublished: true },
+            ],
+          },
+        });
+      } else if (canViewOwner) {
+        fieldValue.$lookup.pipeline?.unshift({
+          $match: {
+            ownerGroup: { $in: currentUser.currentGroups },
+          },
+        });
+      } else {
+        fieldValue.$lookup.pipeline?.unshift({
+          $match: {
+            isPublished: true,
+          },
+        });
       }
     }
   }

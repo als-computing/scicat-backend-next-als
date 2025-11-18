@@ -23,6 +23,7 @@ export class EmailJobAction implements JobAction<JobDto> {
   private from?: string = undefined;
   private subjectTemplate: TemplateJob;
   private bodyTemplate: TemplateJob;
+  private ignoreErrors = false;
 
   getActionType(): string {
     return actionType;
@@ -45,23 +46,51 @@ export class EmailJobAction implements JobAction<JobDto> {
       "utf8",
     );
     this.bodyTemplate = compileJobTemplate(templateFile);
+
+    if (options["ignoreErrors"]) {
+      this.ignoreErrors = options.ignoreErrors;
+    }
   }
 
-  async performJob(context: JobPerformContext<JobDto>) {
+  async perform(context: JobPerformContext<JobDto>) {
     Logger.log(
       `(Job ${context.job.id}) Performing EmailJobAction`,
       "EmailJobAction",
     );
 
-    // Fill templates
-    const mail: ISendMailOptions = {
-      to: this.toTemplate(context),
-      from: this.from,
-      subject: this.subjectTemplate(context),
-      html: this.bodyTemplate(context),
-    };
+    let mail: ISendMailOptions;
+    try {
+      // Fill templates
+      mail = {
+        to: this.toTemplate(context),
+        subject: this.subjectTemplate(context),
+        html: this.bodyTemplate(context),
+      };
+      if (this.from) {
+        mail.from = this.from;
+      }
+    } catch (err) {
+      Logger.error(
+        `(Job ${context.job.id}) EmailJobAction: Template error: ${err}`,
+        "EmailJobAction",
+      );
+      if (!this.ignoreErrors) {
+        throw err;
+      }
+      return;
+    }
 
-    // Send the email
-    await this.mailService.sendMail(mail);
+    try {
+      // Send the email
+      await this.mailService.sendMail(mail);
+    } catch (err) {
+      Logger.error(
+        `(Job ${context.job.id}) EmailJobAction: Sending email failed: ${err}`,
+        "EmailJobAction",
+      );
+      if (!this.ignoreErrors) {
+        throw err;
+      }
+    }
   }
 }

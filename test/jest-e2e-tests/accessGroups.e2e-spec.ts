@@ -1,9 +1,9 @@
 import request from "supertest";
-import { Test } from "@nestjs/testing";
 import { INestApplication } from "@nestjs/common";
-import { AppModule } from "src/app.module";
 import { UsersService } from "src/users/users.service";
 import { User } from "src/users/schemas/user.schema";
+import { createTestingApp, createTestingModuleFactory } from "./utlis";
+import { TestData } from "../TestData";
 
 describe("Access groups test", () => {
   let app: INestApplication;
@@ -11,13 +11,9 @@ describe("Access groups test", () => {
   let u: User;
 
   beforeAll(async () => {
-    const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    const moduleFixture = await createTestingModuleFactory().compile();
 
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix("api/v3");
-    await app.init();
+    app = await createTestingApp(moduleFixture);
 
     usersService = app.get<UsersService>(UsersService);
     u = (await usersService.findOrCreate({
@@ -63,7 +59,7 @@ describe("Access groups test", () => {
       .get("/api/v3/Datasets")
       .set("Accept", "application/json")
       .set({ Authorization: `Bearer ${loginResponse.body.id}` })
-      .expect(200)
+      .expect(TestData.SuccessfulGetStatusCode)
       .expect("Content-Type", /json/);
   });
 
@@ -115,7 +111,7 @@ describe("Access groups test", () => {
       .get("/api/v3/Datasets")
       .set("Accept", "application/json")
       .set({ Authorization: `Bearer ${loginResponse.body.id}` })
-      .expect(200)
+      .expect(TestData.SuccessfulGetStatusCode)
       .expect("Content-Type", /json/);
   });
 });
